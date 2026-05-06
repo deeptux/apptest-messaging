@@ -1,0 +1,39 @@
+.env
+.env.local
+.env.*
+!.env.example
+*.log
+coverage/
+*.code-workspace
+DEV_PROGRESS.md
+
+# Firebase service account (never commit)
+*-firebase-adminsdk-*.json
+**/firebase-adminsdk*.json
+secrets/
+
+# Go
+/backend/bin/
+/backend/tmp/
+*.exe
+*.test
+
+# OS
+.DS_Store
+Thumbs.db
+
+# IDE
+.idea/
+.vscode/
+*.swp
+.cursor/
+
+# Cursor / local agent artifacts
+**/.cursor/
+
+# Flutter (also uses frontend/.gitignore from flutter create)
+/frontend/.dart_tool/
+/frontend/build/
+/frontend/.flutter-plugins-dependencies
+
+reference/
