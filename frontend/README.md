@@ -86,6 +86,77 @@ Phase 1: Google sign-in via **Firebase Auth**, Riverpod state, **Drift** local c
 
 Set `API_BASE_URL` via `--dart-define` (see above). No default is baked in: missing define shows an error at startup.
 
+## Deploy Flutter web to Firebase Hosting (step-by-step)
+
+Prerequisites: **Node.js** (LTS), this repo’s `frontend/` configured with **`flutterfire configure`**, a **Firebase** project, and a deployed **API** URL (e.g. Railway — see root `README.md`).
+
+### 1) Install Firebase CLI
+
+```bash
+npm install -g firebase-tools
+firebase login
+```
+
+### 2) Link the Firebase project (one-time)
+
+From **`frontend/`** (same folder as this README):
+
+- If you do not yet have a **`.firebaserc`**, either run `firebase init hosting` (below) which creates it, or run `firebase use --add` and pick your project.
+
+### 3) Initialize Hosting (one-time; run inside `frontend/`)
+
+If you have not run this before:
+
+```bash
+cd frontend
+firebase init hosting
+```
+
+When prompted:
+
+- **Public directory:** `build/web` (Flutter web release output).
+- **Single-page app:** **Yes** (rewrite all URLs to `index.html`).
+- **Automatic builds / GitHub:** optional; not required for manual deploys.
+
+The repo’s [`firebase.json`](firebase.json) is expected to include **`hosting.public` = `build/web`** and an SPA **`rewrites`** entry. If `firebase init` reformats the file, re-run **`flutterfire configure`** if FlutterFire metadata was removed (see FlutterFire docs).
+
+### 4) Build Flutter web for production
+
+Point **`API_BASE_URL`** at your live API (no trailing slash on the host is fine; use the same shape you use locally).
+
+**OAuth Web client ID:** same as local dev — Google Cloud **OAuth 2.0 Web client** (`….apps.googleusercontent.com`). Pass it at build time **or** set the `<meta name="google-signin-client_id" …>` in `web/index.html` (see **One-time setup** above).
+
+```bash
+cd frontend
+flutter build web --release \
+  --dart-define=API_BASE_URL=https://<your-railway-or-api-host> \
+  --dart-define=GOOGLE_OAUTH_WEB_CLIENT_ID=<YOUR_WEB_CLIENT_ID>.apps.googleusercontent.com
+```
+
+This writes static files to **`build/web/`**.
+
+### 5) Deploy Hosting
+
+```bash
+cd frontend
+firebase deploy --only hosting
+```
+
+After deploy, open **`https://<project-id>.web.app`** (or your custom domain if configured).
+
+### 6) Firebase Auth: authorized domains
+
+In Firebase Console → **Authentication** → **Settings** → **Authorized domains**, add:
+
+- Your Hosting domain (e.g. `<project-id>.web.app`, `*.web.app` is not used here—add the concrete host Firebase shows).
+- Any custom domain you attach.
+
+Without this, Google sign-in on the hosted site may fail.
+
+### 7) CORS on the API
+
+The Go API must allow your Hosting **`Origin`** via `CORS_ALLOWED_ORIGINS` (comma-separated, exact match). See root `README.md` **Production CORS for Firebase Hosting**.
+
 ## Phase 1 limitations
 
 - Firebase **ID token** is kept **in memory** only (Riverpod). It is cleared on app restart until the user signs in again.
