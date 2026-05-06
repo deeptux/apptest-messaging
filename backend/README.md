@@ -51,6 +51,19 @@ After a successful `/api/v1/me`:
 - Key: `session:user:{firebaseUid}`
 - TTL: 86400 seconds (refreshed on each successful `/api/v1/me`)
 
+Verify locally (PowerShell, assumes Redis from `docker compose up -d`):
+
+```powershell
+# Replace with the firebaseUid returned by /api/v1/me
+$uid = "YOUR_FIREBASE_UID"
+
+docker compose exec -T redis redis-cli EXISTS "session:user:$uid"
+docker compose exec -T redis redis-cli TTL "session:user:$uid"
+
+# Call /api/v1/me again, then re-check TTL to confirm it refreshed.
+docker compose exec -T redis redis-cli TTL "session:user:$uid"
+```
+
 ## Docker image
 
 From repo root (or `backend/` as context):
