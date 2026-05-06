@@ -28,6 +28,10 @@ For **Supabase**, use the **direct (session)** connection string when running `m
 
 ## Firebase credentials (single supported path)
 
+“This backend only supports file-based Admin credentials via GOOGLE_APPLICATION_CREDENTIALS.”
+“We do not support providing the JSON contents in an env var (e.g. FIREBASE_CREDENTIALS_JSON).”
+“Create/download it from Firebase Console → Project settings → Service accounts → Generate new private key.”
+
 Set **`GOOGLE_APPLICATION_CREDENTIALS`** to the filesystem path of your Firebase Admin service account JSON (same Firebase project as the Flutter app). Do not commit this file.
 
 On **Railway**, mount the JSON as a secret file and set `GOOGLE_APPLICATION_CREDENTIALS` to the in-container path (e.g. `/secrets/firebase.json`).
