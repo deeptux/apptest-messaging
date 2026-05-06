@@ -48,6 +48,8 @@ docker compose up -d
 
 Wait until `docker compose ps` shows `healthy` for both services.
 
+Start/Stop/Reset/Verify
+
 ### 2) Run database migrations
 
 From the **`backend/`** directory (install `migrate` first — see [golang-migrate](https://github.com/golang-migrate/migrate/tree/master/cmd/migrate)):
