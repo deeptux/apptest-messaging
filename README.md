@@ -98,7 +98,7 @@ From **`frontend/`** (requires Flutter SDK + `flutterfire configure` — see Fir
 ```bash
 cd frontend
 flutter pub get
-flutter run -d chrome \
+flutter run -d chrome --web-port=59392 \
   --dart-define=API_BASE_URL=http://localhost:8080 \
   --dart-define=GOOGLE_OAUTH_WEB_CLIENT_ID=YOUR_WEB_CLIENT_ID.apps.googleusercontent.com
 ```
