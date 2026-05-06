@@ -1,0 +1,8 @@
+# This file tracks properties of the Flutter project for tooling.
+# https://docs.flutter.dev/tools/metadata
+
+version:
+  revision: "stable"
+  channel: "stable"
+
+project_type: app

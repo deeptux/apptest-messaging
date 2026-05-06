@@ -1,0 +1,37 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <base href="$FLUTTER_BASE_HREF">
+  <meta charset="UTF-8">
+  <meta content="IE=Edge" http-equiv="X-UA-Compatible">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>apptest_messaging</title>
+  <link rel="manifest" href="manifest.json">
+  <!-- OAuth Web client ID (public). Must be exactly one ".apps.googleusercontent.com" suffix. -->
+  <meta name="google-signin-client_id" content="85617820491-hn8af5sjl93en665q0dgpkgviosditb4.apps.googleusercontent.com" />
+</head>
+<body>
+  <!-- Drift WebDatabase (sql.js); required before Flutter loads Drift on web -->
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/sql.js/1.10.3/sql-wasm.js"></script>
+  <script>
+    // Ensure sql.js fetches its wasm from a real wasm URL, not from localhost fallback HTML.
+    (function () {
+      const base = "https://cdnjs.cloudflare.com/ajax/libs/sql.js/1.10.3/";
+      const originalInitSqlJs = window.initSqlJs;
+      if (typeof originalInitSqlJs !== "function") return;
+      window.initSqlJs = function (config) {
+        const merged = config || {};
+        const prevLocateFile = merged.locateFile;
+        merged.locateFile = function (file, prefix) {
+          if (typeof prevLocateFile === "function") {
+            return prevLocateFile(file, prefix);
+          }
+          return base + file;
+        };
+        return originalInitSqlJs(merged);
+      };
+    })();
+  </script>
+  <script src="flutter_bootstrap.js" async></script>
+</body>
+</html>
