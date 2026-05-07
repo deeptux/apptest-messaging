@@ -1,4 +1,4 @@
-import 'package:apptest_messaging/core/providers.dart' show localUserProvider;
+import 'package:apptest_messaging/features/inbox/inbox_screen.dart';
 import 'package:apptest_messaging/features/auth/session_notifier.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
@@ -24,52 +24,7 @@ class HomeScreen extends ConsumerWidget {
             ),
           );
         }
-        final local = ref.watch(localUserProvider);
-        return Scaffold(
-          appBar: AppBar(
-            title: const Text('Signed in'),
-            actions: [
-              IconButton(
-                tooltip: 'Sign out',
-                onPressed: () => ref.read(sessionProvider.notifier).signOut(),
-                icon: const Icon(Icons.logout),
-              ),
-            ],
-          ),
-          body: Padding(
-            padding: const EdgeInsets.all(24),
-            child: ListView(
-              children: [
-                Text('Server profile', style: Theme.of(context).textTheme.titleMedium),
-                const SizedBox(height: 8),
-                Text('userId: ${me.userId}'),
-                Text('firebaseUid: ${me.firebaseUid}'),
-                Text('email: ${me.email ?? '—'}'),
-                Text('displayName: ${me.displayName ?? '—'}'),
-                Text('photoUrl: ${me.photoUrl ?? '—'}'),
-                const Divider(height: 32),
-                Text('Drift cache', style: Theme.of(context).textTheme.titleMedium),
-                const SizedBox(height: 8),
-                local.when(
-                  data: (row) {
-                    if (row == null) {
-                      return const Text('No local row (unexpected).');
-                    }
-                    return Text(
-                      'internalUserId: ${row.internalUserId}\n'
-                      'firebaseUid: ${row.firebaseUid}\n'
-                      'email: ${row.email ?? '—'}\n'
-                      'displayName: ${row.displayName ?? '—'}\n'
-                      'updatedAt: ${row.updatedAt.toIso8601String()}',
-                    );
-                  },
-                  loading: () => const Text('Loading local row…'),
-                  error: (e, _) => Text('Local error: $e'),
-                ),
-              ],
-            ),
-          ),
-        );
+        return InboxScreen(me: me);
       },
       loading: () => const Scaffold(
         body: Center(child: CircularProgressIndicator()),
