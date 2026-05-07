@@ -1,6 +1,5 @@
 import 'package:apptest_messaging/core/models/me_response.dart';
 import 'package:apptest_messaging/core/providers.dart' show appDatabaseProvider, dioProvider, idTokenProvider, localUserProvider;
-import 'package:apptest_messaging/debug/agent_debug_log.dart';
 import 'package:dio/dio.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter/foundation.dart' show kIsWeb;
@@ -34,52 +33,17 @@ class SessionNotifier extends AsyncNotifier<MeResponse?> {
   Future<void> signInWithGoogle() async {
     state = const AsyncLoading();
     state = await AsyncValue.guard(() async {
-      // #region agent log
-      agentDebugLog(
-        hypothesisId: 'H1',
-        location: 'session_notifier.dart:signInWithGoogle',
-        message: 'before GoogleSignIn.signIn',
-      );
-      // #endregion
       final account = await _googleSignIn.signIn();
-      // #region agent log
-      agentDebugLog(
-        hypothesisId: 'H1',
-        location: 'session_notifier.dart:signInWithGoogle',
-        message: 'after GoogleSignIn.signIn',
-        data: {'hasAccount': account != null},
-      );
-      // #endregion
       if (account == null) {
         throw StateError('Google sign-in cancelled');
       }
       final auth = await account.authentication;
-      // #region agent log
-      agentDebugLog(
-        hypothesisId: 'H2',
-        location: 'session_notifier.dart:signInWithGoogle',
-        message: 'after account.authentication',
-        data: {
-          'hasAccessToken':
-              auth.accessToken != null && auth.accessToken!.isNotEmpty,
-          'hasIdToken': auth.idToken != null && auth.idToken!.isNotEmpty,
-        },
-      );
-      // #endregion
       final credential = GoogleAuthProvider.credential(
         accessToken: auth.accessToken,
         idToken: auth.idToken,
       );
       final userCred =
           await FirebaseAuth.instance.signInWithCredential(credential);
-      // #region agent log
-      agentDebugLog(
-        hypothesisId: 'H3',
-        location: 'session_notifier.dart:signInWithGoogle',
-        message: 'after FirebaseAuth.signInWithCredential',
-        data: {'hasUser': userCred.user != null},
-      );
-      // #endregion
       final user = userCred.user;
       if (user == null) {
         throw StateError('Firebase user missing after Google sign-in');
@@ -109,29 +73,6 @@ class SessionNotifier extends AsyncNotifier<MeResponse?> {
 
       return me;
     });
-    // #region agent log
-    final err = state.error;
-    if (err != null) {
-      final text = err.toString();
-      agentDebugLog(
-        hypothesisId: 'H1',
-        location: 'session_notifier.dart:signInWithGoogle:result',
-        message: 'signInWithGoogle ended with error',
-        data: {
-          'errorType': err.runtimeType.toString(),
-          'snippet': agentErrorSnippet(err),
-          'mentionsPeopleApi': text.contains('people.googleapis.com'),
-          'mentions403': text.contains('403'),
-        },
-      );
-    } else {
-      agentDebugLog(
-        hypothesisId: 'H3',
-        location: 'session_notifier.dart:signInWithGoogle:result',
-        message: 'signInWithGoogle completed without error',
-      );
-    }
-    // #endregion
   }
 
   Future<void> signOut() async {
