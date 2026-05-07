@@ -102,6 +102,7 @@ func Inbox(chat *services.ChatService, me *services.MeService) gin.HandlerFunc {
 				"lastMessageAt":  r.LastMessageAt,
 				"lastReadSeq":    r.MyLastReadSeq,
 				"unreadCount":    unread,
+				"hiddenAt":       r.HiddenAt,
 				"otherUser": gin.H{
 					"userId":      r.OtherUserID.String(),
 					"email":       r.OtherEmail,
@@ -171,6 +172,7 @@ func ConversationMessages(chat *services.ChatService, me *services.MeService) gi
 				"body":           m.Body,
 				"createdAt":      m.CreatedAt,
 				"deliveredAt":    m.DeliveredAt,
+				"deletedAt":      m.DeletedAt,
 			})
 		}
 		c.JSON(http.StatusOK, gin.H{
@@ -219,5 +221,37 @@ func ConversationRead(chat *services.ChatService, me *services.MeService) gin.Ha
 			return
 		}
 		c.JSON(http.StatusOK, gin.H{"conversationId": convID.String(), "lastReadSeq": newSeq})
+	}
+}
+
+func ConversationHide(chat *services.ChatService, me *services.MeService) gin.HandlerFunc {
+	return func(c *gin.Context) {
+		tok, ok := middleware.FirebaseToken(c)
+		if !ok || tok == nil {
+			c.JSON(http.StatusUnauthorized, gin.H{"error": "unauthorized", "message": "missing token context"})
+			return
+		}
+		prof, err := me.SyncFromToken(c.Request.Context(), tok)
+		if err != nil {
+			c.JSON(http.StatusInternalServerError, gin.H{"error": "internal", "message": "failed to load profile"})
+			return
+		}
+		selfID, err := uuid.Parse(prof.UserID)
+		if err != nil {
+			c.JSON(http.StatusInternalServerError, gin.H{"error": "internal", "message": "invalid user id"})
+			return
+		}
+
+		convID, err := uuid.Parse(c.Param("conversationId"))
+		if err != nil {
+			c.JSON(http.StatusBadRequest, gin.H{"error": "badRequest", "message": "invalid conversationId"})
+			return
+		}
+
+		if err := chat.HideConversation(c.Request.Context(), convID, selfID); err != nil {
+			c.JSON(http.StatusForbidden, gin.H{"error": "forbidden", "message": "not a member"})
+			return
+		}
+		c.JSON(http.StatusOK, gin.H{"conversationId": convID.String(), "hidden": true})
 	}
 }

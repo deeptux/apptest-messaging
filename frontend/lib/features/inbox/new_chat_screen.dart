@@ -94,6 +94,7 @@ class _NewChatScreenState extends ConsumerState<NewChatScreen> {
                       onTap: () async {
                         final convId =
                             await ref.read(chatRepositoryProvider).openOrCreateDirect(otherUserId: userId);
+                        await ref.read(chatRepositoryProvider).syncInbox(selfUserId: widget.selfUserId);
                         if (!context.mounted) return;
                         Navigator.of(context).pushReplacement(
                           MaterialPageRoute(

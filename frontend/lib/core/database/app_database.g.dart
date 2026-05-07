@@ -1150,6 +1150,12 @@ class $MessagesTable extends Messages with TableInfo<$MessagesTable, Message> {
   late final GeneratedColumn<DateTime> deliveredAt = GeneratedColumn<DateTime>(
       'delivered_at', aliasedName, true,
       type: DriftSqlType.dateTime, requiredDuringInsert: false);
+  static const VerificationMeta _deletedAtMeta =
+      const VerificationMeta('deletedAt');
+  @override
+  late final GeneratedColumn<DateTime> deletedAt = GeneratedColumn<DateTime>(
+      'deleted_at', aliasedName, true,
+      type: DriftSqlType.dateTime, requiredDuringInsert: false);
   @override
   List<GeneratedColumn> get $columns => [
         messageId,
@@ -1158,7 +1164,8 @@ class $MessagesTable extends Messages with TableInfo<$MessagesTable, Message> {
         senderUserId,
         body,
         createdAt,
-        deliveredAt
+        deliveredAt,
+        deletedAt
       ];
   @override
   String get aliasedName => _alias ?? actualTableName;
@@ -1216,6 +1223,10 @@ class $MessagesTable extends Messages with TableInfo<$MessagesTable, Message> {
           deliveredAt.isAcceptableOrUnknown(
               data['delivered_at']!, _deliveredAtMeta));
     }
+    if (data.containsKey('deleted_at')) {
+      context.handle(_deletedAtMeta,
+          deletedAt.isAcceptableOrUnknown(data['deleted_at']!, _deletedAtMeta));
+    }
     return context;
   }
 
@@ -1239,6 +1250,8 @@ class $MessagesTable extends Messages with TableInfo<$MessagesTable, Message> {
           .read(DriftSqlType.dateTime, data['${effectivePrefix}created_at'])!,
       deliveredAt: attachedDatabase.typeMapping
           .read(DriftSqlType.dateTime, data['${effectivePrefix}delivered_at']),
+      deletedAt: attachedDatabase.typeMapping
+          .read(DriftSqlType.dateTime, data['${effectivePrefix}deleted_at']),
     );
   }
 
@@ -1256,6 +1269,7 @@ class Message extends DataClass implements Insertable<Message> {
   final String body;
   final DateTime createdAt;
   final DateTime? deliveredAt;
+  final DateTime? deletedAt;
   const Message(
       {required this.messageId,
       required this.conversationId,
@@ -1263,7 +1277,8 @@ class Message extends DataClass implements Insertable<Message> {
       required this.senderUserId,
       required this.body,
       required this.createdAt,
-      this.deliveredAt});
+      this.deliveredAt,
+      this.deletedAt});
   @override
   Map<String, Expression> toColumns(bool nullToAbsent) {
     final map = <String, Expression>{};
@@ -1275,6 +1290,9 @@ class Message extends DataClass implements Insertable<Message> {
     map['created_at'] = Variable<DateTime>(createdAt);
     if (!nullToAbsent || deliveredAt != null) {
       map['delivered_at'] = Variable<DateTime>(deliveredAt);
+    }
+    if (!nullToAbsent || deletedAt != null) {
+      map['deleted_at'] = Variable<DateTime>(deletedAt);
     }
     return map;
   }
@@ -1290,6 +1308,9 @@ class Message extends DataClass implements Insertable<Message> {
       deliveredAt: deliveredAt == null && nullToAbsent
           ? const Value.absent()
           : Value(deliveredAt),
+      deletedAt: deletedAt == null && nullToAbsent
+          ? const Value.absent()
+          : Value(deletedAt),
     );
   }
 
@@ -1304,6 +1325,7 @@ class Message extends DataClass implements Insertable<Message> {
       body: serializer.fromJson<String>(json['body']),
       createdAt: serializer.fromJson<DateTime>(json['createdAt']),
       deliveredAt: serializer.fromJson<DateTime?>(json['deliveredAt']),
+      deletedAt: serializer.fromJson<DateTime?>(json['deletedAt']),
     );
   }
   @override
@@ -1317,6 +1339,7 @@ class Message extends DataClass implements Insertable<Message> {
       'body': serializer.toJson<String>(body),
       'createdAt': serializer.toJson<DateTime>(createdAt),
       'deliveredAt': serializer.toJson<DateTime?>(deliveredAt),
+      'deletedAt': serializer.toJson<DateTime?>(deletedAt),
     };
   }
 
@@ -1327,7 +1350,8 @@ class Message extends DataClass implements Insertable<Message> {
           String? senderUserId,
           String? body,
           DateTime? createdAt,
-          Value<DateTime?> deliveredAt = const Value.absent()}) =>
+          Value<DateTime?> deliveredAt = const Value.absent(),
+          Value<DateTime?> deletedAt = const Value.absent()}) =>
       Message(
         messageId: messageId ?? this.messageId,
         conversationId: conversationId ?? this.conversationId,
@@ -1336,6 +1360,7 @@ class Message extends DataClass implements Insertable<Message> {
         body: body ?? this.body,
         createdAt: createdAt ?? this.createdAt,
         deliveredAt: deliveredAt.present ? deliveredAt.value : this.deliveredAt,
+        deletedAt: deletedAt.present ? deletedAt.value : this.deletedAt,
       );
   Message copyWithCompanion(MessagesCompanion data) {
     return Message(
@@ -1351,6 +1376,7 @@ class Message extends DataClass implements Insertable<Message> {
       createdAt: data.createdAt.present ? data.createdAt.value : this.createdAt,
       deliveredAt:
           data.deliveredAt.present ? data.deliveredAt.value : this.deliveredAt,
+      deletedAt: data.deletedAt.present ? data.deletedAt.value : this.deletedAt,
     );
   }
 
@@ -1363,14 +1389,15 @@ class Message extends DataClass implements Insertable<Message> {
           ..write('senderUserId: $senderUserId, ')
           ..write('body: $body, ')
           ..write('createdAt: $createdAt, ')
-          ..write('deliveredAt: $deliveredAt')
+          ..write('deliveredAt: $deliveredAt, ')
+          ..write('deletedAt: $deletedAt')
           ..write(')'))
         .toString();
   }
 
   @override
   int get hashCode => Object.hash(messageId, conversationId, seq, senderUserId,
-      body, createdAt, deliveredAt);
+      body, createdAt, deliveredAt, deletedAt);
   @override
   bool operator ==(Object other) =>
       identical(this, other) ||
@@ -1381,7 +1408,8 @@ class Message extends DataClass implements Insertable<Message> {
           other.senderUserId == this.senderUserId &&
           other.body == this.body &&
           other.createdAt == this.createdAt &&
-          other.deliveredAt == this.deliveredAt);
+          other.deliveredAt == this.deliveredAt &&
+          other.deletedAt == this.deletedAt);
 }
 
 class MessagesCompanion extends UpdateCompanion<Message> {
@@ -1392,6 +1420,7 @@ class MessagesCompanion extends UpdateCompanion<Message> {
   final Value<String> body;
   final Value<DateTime> createdAt;
   final Value<DateTime?> deliveredAt;
+  final Value<DateTime?> deletedAt;
   final Value<int> rowid;
   const MessagesCompanion({
     this.messageId = const Value.absent(),
@@ -1401,6 +1430,7 @@ class MessagesCompanion extends UpdateCompanion<Message> {
     this.body = const Value.absent(),
     this.createdAt = const Value.absent(),
     this.deliveredAt = const Value.absent(),
+    this.deletedAt = const Value.absent(),
     this.rowid = const Value.absent(),
   });
   MessagesCompanion.insert({
@@ -1411,6 +1441,7 @@ class MessagesCompanion extends UpdateCompanion<Message> {
     required String body,
     required DateTime createdAt,
     this.deliveredAt = const Value.absent(),
+    this.deletedAt = const Value.absent(),
     this.rowid = const Value.absent(),
   })  : messageId = Value(messageId),
         conversationId = Value(conversationId),
@@ -1426,6 +1457,7 @@ class MessagesCompanion extends UpdateCompanion<Message> {
     Expression<String>? body,
     Expression<DateTime>? createdAt,
     Expression<DateTime>? deliveredAt,
+    Expression<DateTime>? deletedAt,
     Expression<int>? rowid,
   }) {
     return RawValuesInsertable({
@@ -1436,6 +1468,7 @@ class MessagesCompanion extends UpdateCompanion<Message> {
       if (body != null) 'body': body,
       if (createdAt != null) 'created_at': createdAt,
       if (deliveredAt != null) 'delivered_at': deliveredAt,
+      if (deletedAt != null) 'deleted_at': deletedAt,
       if (rowid != null) 'rowid': rowid,
     });
   }
@@ -1448,6 +1481,7 @@ class MessagesCompanion extends UpdateCompanion<Message> {
       Value<String>? body,
       Value<DateTime>? createdAt,
       Value<DateTime?>? deliveredAt,
+      Value<DateTime?>? deletedAt,
       Value<int>? rowid}) {
     return MessagesCompanion(
       messageId: messageId ?? this.messageId,
@@ -1457,6 +1491,7 @@ class MessagesCompanion extends UpdateCompanion<Message> {
       body: body ?? this.body,
       createdAt: createdAt ?? this.createdAt,
       deliveredAt: deliveredAt ?? this.deliveredAt,
+      deletedAt: deletedAt ?? this.deletedAt,
       rowid: rowid ?? this.rowid,
     );
   }
@@ -1485,6 +1520,9 @@ class MessagesCompanion extends UpdateCompanion<Message> {
     if (deliveredAt.present) {
       map['delivered_at'] = Variable<DateTime>(deliveredAt.value);
     }
+    if (deletedAt.present) {
+      map['deleted_at'] = Variable<DateTime>(deletedAt.value);
+    }
     if (rowid.present) {
       map['rowid'] = Variable<int>(rowid.value);
     }
@@ -1501,6 +1539,7 @@ class MessagesCompanion extends UpdateCompanion<Message> {
           ..write('body: $body, ')
           ..write('createdAt: $createdAt, ')
           ..write('deliveredAt: $deliveredAt, ')
+          ..write('deletedAt: $deletedAt, ')
           ..write('rowid: $rowid')
           ..write(')'))
         .toString();
@@ -2102,6 +2141,7 @@ typedef $$MessagesTableCreateCompanionBuilder = MessagesCompanion Function({
   required String body,
   required DateTime createdAt,
   Value<DateTime?> deliveredAt,
+  Value<DateTime?> deletedAt,
   Value<int> rowid,
 });
 typedef $$MessagesTableUpdateCompanionBuilder = MessagesCompanion Function({
@@ -2112,6 +2152,7 @@ typedef $$MessagesTableUpdateCompanionBuilder = MessagesCompanion Function({
   Value<String> body,
   Value<DateTime> createdAt,
   Value<DateTime?> deliveredAt,
+  Value<DateTime?> deletedAt,
   Value<int> rowid,
 });
 
@@ -2145,6 +2186,9 @@ class $$MessagesTableFilterComposer
 
   ColumnFilters<DateTime> get deliveredAt => $composableBuilder(
       column: $table.deliveredAt, builder: (column) => ColumnFilters(column));
+
+  ColumnFilters<DateTime> get deletedAt => $composableBuilder(
+      column: $table.deletedAt, builder: (column) => ColumnFilters(column));
 }
 
 class $$MessagesTableOrderingComposer
@@ -2178,6 +2222,9 @@ class $$MessagesTableOrderingComposer
 
   ColumnOrderings<DateTime> get deliveredAt => $composableBuilder(
       column: $table.deliveredAt, builder: (column) => ColumnOrderings(column));
+
+  ColumnOrderings<DateTime> get deletedAt => $composableBuilder(
+      column: $table.deletedAt, builder: (column) => ColumnOrderings(column));
 }
 
 class $$MessagesTableAnnotationComposer
@@ -2209,6 +2256,9 @@ class $$MessagesTableAnnotationComposer
 
   GeneratedColumn<DateTime> get deliveredAt => $composableBuilder(
       column: $table.deliveredAt, builder: (column) => column);
+
+  GeneratedColumn<DateTime> get deletedAt =>
+      $composableBuilder(column: $table.deletedAt, builder: (column) => column);
 }
 
 class $$MessagesTableTableManager extends RootTableManager<
@@ -2241,6 +2291,7 @@ class $$MessagesTableTableManager extends RootTableManager<
             Value<String> body = const Value.absent(),
             Value<DateTime> createdAt = const Value.absent(),
             Value<DateTime?> deliveredAt = const Value.absent(),
+            Value<DateTime?> deletedAt = const Value.absent(),
             Value<int> rowid = const Value.absent(),
           }) =>
               MessagesCompanion(
@@ -2251,6 +2302,7 @@ class $$MessagesTableTableManager extends RootTableManager<
             body: body,
             createdAt: createdAt,
             deliveredAt: deliveredAt,
+            deletedAt: deletedAt,
             rowid: rowid,
           ),
           createCompanionCallback: ({
@@ -2261,6 +2313,7 @@ class $$MessagesTableTableManager extends RootTableManager<
             required String body,
             required DateTime createdAt,
             Value<DateTime?> deliveredAt = const Value.absent(),
+            Value<DateTime?> deletedAt = const Value.absent(),
             Value<int> rowid = const Value.absent(),
           }) =>
               MessagesCompanion.insert(
@@ -2271,6 +2324,7 @@ class $$MessagesTableTableManager extends RootTableManager<
             body: body,
             createdAt: createdAt,
             deliveredAt: deliveredAt,
+            deletedAt: deletedAt,
             rowid: rowid,
           ),
           withReferenceMapper: (p0) => p0

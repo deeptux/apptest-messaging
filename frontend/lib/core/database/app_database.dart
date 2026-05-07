@@ -51,6 +51,7 @@ class Messages extends Table {
   TextColumn get body => text()();
   DateTimeColumn get createdAt => dateTime()();
   DateTimeColumn get deliveredAt => dateTime().nullable()();
+  DateTimeColumn get deletedAt => dateTime().nullable()();
 
   @override
   Set<Column> get primaryKey => {messageId};
@@ -61,7 +62,7 @@ class AppDatabase extends _$AppDatabase {
   AppDatabase() : super(openAppDatabaseConnection());
 
   @override
-  int get schemaVersion => 2;
+  int get schemaVersion => 3;
 
   @override
   MigrationStrategy get migration => MigrationStrategy(
@@ -73,6 +74,9 @@ class AppDatabase extends _$AppDatabase {
             await m.createTable(conversations);
             await m.createTable(conversationMembers);
             await m.createTable(messages);
+          }
+          if (from < 3) {
+            await m.addColumn(messages, messages.deletedAt);
           }
         },
       );
@@ -98,6 +102,11 @@ class AppDatabase extends _$AppDatabase {
   }
 
   Future<LocalUser?> getMe() => select(localUsers).getSingleOrNull();
+
+  Future<Conversation?> getConversationById(String conversationId) {
+    return (select(conversations)..where((c) => c.conversationId.equals(conversationId)))
+        .getSingleOrNull();
+  }
 
   Future<void> upsertConversation({
     required String conversationId,
@@ -146,6 +155,7 @@ class AppDatabase extends _$AppDatabase {
     required String body,
     required DateTime createdAt,
     DateTime? deliveredAt,
+    DateTime? deletedAt,
   }) async {
     await into(messages).insertOnConflictUpdate(
       MessagesCompanion(
@@ -156,6 +166,7 @@ class AppDatabase extends _$AppDatabase {
         body: Value(body),
         createdAt: Value(createdAt),
         deliveredAt: Value(deliveredAt),
+        deletedAt: Value(deletedAt),
       ),
     );
   }
@@ -181,6 +192,39 @@ class AppDatabase extends _$AppDatabase {
     await (update(messages)
           ..where((m) => m.conversationId.equals(conversationId) & m.seq.equals(seq)))
         .write(MessagesCompanion(deliveredAt: Value(deliveredAt)));
+  }
+
+  Future<void> deleteMessageById(String messageId) async {
+    await (delete(messages)..where((m) => m.messageId.equals(messageId))).go();
+  }
+
+  Future<void> markMessageDeleted({
+    required String conversationId,
+    required int seq,
+    required DateTime deletedAt,
+  }) async {
+    await (update(messages)
+          ..where((m) => m.conversationId.equals(conversationId) & m.seq.equals(seq)))
+        .write(
+      MessagesCompanion(
+        body: const Value('Message deleted'),
+        deletedAt: Value(deletedAt),
+      ),
+    );
+  }
+
+  Future<void> deleteConversationLocal(String conversationId) async {
+    await transaction(() async {
+      await (delete(messages)
+            ..where((m) => m.conversationId.equals(conversationId)))
+          .go();
+      await (delete(conversationMembers)
+            ..where((m) => m.conversationId.equals(conversationId)))
+          .go();
+      await (delete(conversations)
+            ..where((c) => c.conversationId.equals(conversationId)))
+          .go();
+    });
   }
 
   Future<List<Conversation>> listInbox() {

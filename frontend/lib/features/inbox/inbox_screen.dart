@@ -87,7 +87,48 @@ class _InboxScreenState extends ConsumerState<InboxScreen> {
                     maxLines: 1,
                     overflow: TextOverflow.ellipsis,
                   ),
-                  trailing: _UnreadBadge(conversationId: c0.conversationId, selfUserId: widget.me.userId, lastSeq: c0.lastSeq),
+                  trailing: Row(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      _UnreadBadge(
+                        conversationId: c0.conversationId,
+                        selfUserId: widget.me.userId,
+                        lastSeq: c0.lastSeq,
+                      ),
+                      const SizedBox(width: 8),
+                      IconButton(
+                        tooltip: 'Delete (local)',
+                        icon: const Icon(Icons.delete_outline),
+                        onPressed: () async {
+                          final ok = await showDialog<bool>(
+                            context: context,
+                            builder: (_) => AlertDialog(
+                              title: const Text('Remove Conversation?'),
+                              content: const Text(
+                                'Removed, not deleted. It will reappear if a new message arrives.',
+                              ),
+                              actions: [
+                                TextButton(
+                                  onPressed: () => Navigator.of(context).pop(false),
+                                  child: const Text('Cancel'),
+                                ),
+                                FilledButton(
+                                  onPressed: () => Navigator.of(context).pop(true),
+                                  child: const Text('Delete'),
+                                ),
+                              ],
+                            ),
+                          );
+                          if (ok == true) {
+                            await ref.read(chatRepositoryProvider).hideConversation(
+                                  selfUserId: widget.me.userId,
+                                  conversationId: c0.conversationId,
+                                );
+                          }
+                        },
+                      ),
+                    ],
+                  ),
                   onTap: () async {
                     await Navigator.of(context).push(
                       MaterialPageRoute(

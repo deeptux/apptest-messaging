@@ -29,6 +29,7 @@ type InboxRow struct {
 	OtherEmail     *string
 	OtherName      *string
 	OtherPhotoURL  *string
+	HiddenAt       *time.Time
 }
 
 type ConversationRepository struct {
@@ -117,6 +118,7 @@ SELECT
   c.last_seq,
   c.last_message_at,
   cm.last_read_seq,
+  cm.hidden_at,
   ou.id,
   ou.email,
   ou.display_name,
@@ -126,6 +128,7 @@ JOIN conversations c ON c.id = cm.conversation_id
 JOIN conversation_members cm2 ON cm2.conversation_id = c.id AND cm2.user_id <> $1
 JOIN users ou ON ou.id = cm2.user_id
 WHERE cm.user_id = $1
+  AND (cm.hidden_at IS NULL OR (c.last_message_at IS NOT NULL AND c.last_message_at > cm.hidden_at))
 ORDER BY c.last_message_at DESC NULLS LAST, c.id
 LIMIT $2`
 	rows, err := r.pool.Query(ctx, q, userID, limit)
@@ -144,6 +147,7 @@ LIMIT $2`
 			&r0.LastSeq,
 			&lastAt,
 			&r0.MyLastReadSeq,
+			&r0.HiddenAt,
 			&r0.OtherUserID,
 			&r0.OtherEmail,
 			&r0.OtherName,
@@ -155,6 +159,16 @@ LIMIT $2`
 		out = append(out, r0)
 	}
 	return out, rows.Err()
+}
+
+func (r *ConversationRepository) Hide(ctx context.Context, conversationID, userID uuid.UUID) error {
+	const q = `
+UPDATE conversation_members
+SET hidden_at = now(),
+    updated_at = now()
+WHERE conversation_id = $1 AND user_id = $2`
+	_, err := r.pool.Exec(ctx, q, conversationID, userID)
+	return err
 }
 
 func (r *ConversationRepository) MarkRead(ctx context.Context, conversationID, userID uuid.UUID, lastReadSeq int64) (int64, error) {

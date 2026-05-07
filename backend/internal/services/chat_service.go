@@ -68,3 +68,14 @@ func (s *ChatService) MarkRead(ctx context.Context, conversationID, selfID uuid.
 	}
 	return s.convs.MarkRead(ctx, conversationID, selfID, lastReadSeq)
 }
+
+func (s *ChatService) HideConversation(ctx context.Context, conversationID, selfID uuid.UUID) error {
+	ok, err := s.convs.IsMember(ctx, conversationID, selfID)
+	if err != nil {
+		return err
+	}
+	if !ok {
+		return fmt.Errorf("not a member")
+	}
+	return s.convs.Hide(ctx, conversationID, selfID)
+}

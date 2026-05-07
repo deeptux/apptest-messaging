@@ -43,6 +43,7 @@ class ChatRepository {
         body: m['body'] as String,
         createdAt: _parseDateTime(m['createdAt']) ?? DateTime.now().toUtc(),
         deliveredAt: _parseDateTime(m['deliveredAt']),
+        deletedAt: _parseDateTime(m['deletedAt']),
       );
     }
   }
@@ -66,6 +67,7 @@ class ChatRepository {
         body: m['body'] as String,
         createdAt: _parseDateTime(m['createdAt']) ?? DateTime.now().toUtc(),
         deliveredAt: _parseDateTime(m['deliveredAt']),
+        deletedAt: _parseDateTime(m['deletedAt']),
       );
     }
   }
@@ -80,6 +82,16 @@ class ChatRepository {
     required int lastReadSeq,
   }) async {
     await api.markRead(conversationId: conversationId, lastReadSeq: lastReadSeq);
+  }
+
+  Future<void> hideConversation({
+    required String selfUserId,
+    required String conversationId,
+  }) async {
+    await api.hideConversation(conversationId: conversationId);
+    await db.deleteConversationLocal(conversationId);
+    // Keep local inbox consistent with server-side hide filtering.
+    await syncInbox(selfUserId: selfUserId);
   }
 }
 

@@ -130,18 +130,59 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
                             color: mine ? Theme.of(context).colorScheme.primary : const Color(0xFF101018),
                             borderRadius: BorderRadius.circular(18),
                           ),
-                          child: Linkify(
-                            text: m.body,
-                            style: TextStyle(
-                              color: mine ? Colors.white : Colors.white,
-                              height: 1.25,
-                            ),
-                            linkStyle: const TextStyle(decoration: TextDecoration.underline),
-                            onOpen: (link) async {
-                              final uri = Uri.tryParse(link.url);
-                              if (uri == null) return;
-                              await launchUrl(uri, mode: LaunchMode.externalApplication);
+                          child: GestureDetector(
+                            onTap: () async {
+                              final canDelete = mine && m.body != 'Message deleted';
+                              await showModalBottomSheet<void>(
+                                context: context,
+                                showDragHandle: true,
+                                builder: (_) => SafeArea(
+                                  child: Padding(
+                                    padding: const EdgeInsets.all(16),
+                                    child: Column(
+                                      mainAxisSize: MainAxisSize.min,
+                                      crossAxisAlignment: CrossAxisAlignment.stretch,
+                                      children: [
+                                        Text(
+                                          m.body,
+                                          maxLines: 3,
+                                          overflow: TextOverflow.ellipsis,
+                                          style: Theme.of(context).textTheme.bodyMedium,
+                                        ),
+                                        const SizedBox(height: 12),
+                                        if (canDelete)
+                                          FilledButton.icon(
+                                            onPressed: () {
+                                              ref.read(wsClientProvider).sendDelete(
+                                                    conversationId: widget.conversationId,
+                                                    seq: m.seq,
+                                                  );
+                                              Navigator.of(context).pop();
+                                            },
+                                            icon: const Icon(Icons.delete),
+                                            label: const Text('Delete'),
+                                          )
+                                        else
+                                          const Text('No actions available.'),
+                                      ],
+                                    ),
+                                  ),
+                                ),
+                              );
                             },
+                            child: Linkify(
+                              text: m.body,
+                              style: TextStyle(
+                                color: mine ? Colors.black : Colors.white,
+                                height: 1.25,
+                              ),
+                              linkStyle: const TextStyle(decoration: TextDecoration.underline),
+                              onOpen: (link) async {
+                                final uri = Uri.tryParse(link.url);
+                                if (uri == null) return;
+                                await launchUrl(uri, mode: LaunchMode.externalApplication);
+                              },
+                            ),
                           ),
                         ),
                       ),

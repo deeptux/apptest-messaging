@@ -90,6 +90,17 @@ class WsClient {
     });
   }
 
+  void sendDelete({
+    required String conversationId,
+    required int seq,
+  }) {
+    _send({
+      'v': 1,
+      't': 'msg.delete',
+      'data': {'conversationId': conversationId, 'seq': seq},
+    });
+  }
+
   void _send(Map<String, dynamic> env) {
     final ch = _channel;
     if (ch == null) return;

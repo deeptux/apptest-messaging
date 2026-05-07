@@ -58,5 +58,12 @@ class ChatApi {
       data: {'lastReadSeq': lastReadSeq},
     );
   }
+
+  Future<void> hideConversation({required String conversationId}) async {
+    await _dio.post<Map<String, dynamic>>(
+      '/api/v1/conversations/$conversationId/hide',
+      data: const {},
+    );
+  }
 }
 

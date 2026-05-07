@@ -114,12 +114,18 @@ class SessionNotifier extends AsyncNotifier<MeResponse?> {
             body: body,
             createdAt: createdAt,
             deliveredAt: DateTime.tryParse((data['deliveredAt'] as String?) ?? '')?.toUtc(),
+            deletedAt: DateTime.tryParse((data['deletedAt'] as String?) ?? '')?.toUtc(),
           );
           await db.updateConversationLast(
             conversationId: conversationId,
             lastSeq: seq,
             lastMessageAt: createdAt,
           );
+
+          final existingConv = await db.getConversationById(conversationId);
+          if (existingConv == null) {
+            await ref.read(chatRepositoryProvider).syncInbox(selfUserId: me.userId);
+          }
 
           if (senderUserId != me.userId) {
             ws.sendDelivered(conversationId: conversationId, seq: seq);
@@ -134,6 +140,17 @@ class SessionNotifier extends AsyncNotifier<MeResponse?> {
                 conversationId: conversationId,
                 seq: seq,
                 deliveredAt: deliveredAt,
+              );
+        } else if (t == 'msg.deleted' && data != null) {
+          final conversationId = data['conversationId'] as String?;
+          final seq = (data['seq'] as num?)?.toInt();
+          final deletedAt =
+              DateTime.tryParse((data['deletedAt'] as String?) ?? '')?.toUtc();
+          if (conversationId == null || seq == null || deletedAt == null) return;
+          await ref.read(appDatabaseProvider).markMessageDeleted(
+                conversationId: conversationId,
+                seq: seq,
+                deletedAt: deletedAt,
               );
         }
       });

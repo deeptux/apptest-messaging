@@ -19,6 +19,7 @@ const (
 	EventPing         = "ping"
 	EventMsgSend      = "msg.send"
 	EventMsgDelivered = "msg.delivered"
+	EventMsgDelete    = "msg.delete"
 	EventReadMark     = "read.mark"
 )
 
@@ -29,6 +30,7 @@ const (
 	EventPong        = "pong"
 	EventMsgNew      = "msg.new"
 	EventMsgAck      = "msg.ack"
+	EventMsgDeleted  = "msg.deleted"
 	EventConvUpdated = "conv.updated"
 	EventErr         = "err"
 )
@@ -42,4 +44,3 @@ const (
 	ErrRateLimited  = "rateLimited"
 	ErrInternal     = "internal"
 )
-

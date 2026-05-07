@@ -99,6 +99,7 @@ func run() error {
 	api.GET("/inbox", handlers.Inbox(chatSvc, meSvc))
 	api.GET("/conversations/:conversationId/messages", handlers.ConversationMessages(chatSvc, meSvc))
 	api.POST("/conversations/:conversationId/read", handlers.ConversationRead(chatSvc, meSvc))
+	api.POST("/conversations/:conversationId/hide", handlers.ConversationHide(chatSvc, meSvc))
 
 	addr := ":" + cfg.Port
 	srv := &http.Server{

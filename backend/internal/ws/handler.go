@@ -294,6 +294,45 @@ func Handler(deps HandlerDeps) gin.HandlerFunc {
 				}
 				b2, _ := json.Marshal(ev)
 				deps.Hub.SendToUser(senderID.String(), b2)
+			case EventMsgDelete:
+				var data struct {
+					ConversationID string `json:"conversationId"`
+					Seq            int64  `json:"seq"`
+				}
+				if err := json.Unmarshal(env.Data, &data); err != nil {
+					_ = sendErr(wsConn, ErrBadRequest, "invalid data")
+					continue
+				}
+				convID, err := uuid.Parse(strings.TrimSpace(data.ConversationID))
+				if err != nil || data.Seq <= 0 {
+					_ = sendErr(wsConn, ErrBadRequest, "invalid delete")
+					continue
+				}
+				isMember, err := deps.Convs.IsMember(c.Request.Context(), convID, selfID)
+				if err != nil || !isMember {
+					_ = sendErr(wsConn, ErrUnauthorized, "not a member")
+					continue
+				}
+				ts, err := deps.Msgs.SoftDelete(c.Request.Context(), convID, data.Seq, selfID)
+				if err != nil {
+					_ = sendErr(wsConn, ErrUnauthorized, "delete rejected")
+					continue
+				}
+				ev := EnvelopeV1{
+					V: ProtocolVersionV1,
+					T: EventMsgDeleted,
+					Data: mustMarshal(map[string]any{
+						"conversationId": convID.String(),
+						"seq":            data.Seq,
+						"deletedAt":      ts.UTC().Format(time.RFC3339Nano),
+						"body":           "Message deleted",
+					}),
+				}
+				b2, _ := json.Marshal(ev)
+				memberIDs, _ := deps.Convs.ListMemberUserIDs(c.Request.Context(), convID)
+				for _, uid := range memberIDs {
+					deps.Hub.SendToUser(uid.String(), b2)
+				}
 			case EventReadMark:
 				var data struct {
 					ConversationID string `json:"conversationId"`
