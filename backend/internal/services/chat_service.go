@@ -24,6 +24,11 @@ func (s *ChatService) SearchUsersByEmailPrefix(ctx context.Context, prefix strin
 	return s.users.SearchByEmailPrefix(ctx, prefix, limit)
 }
 
+// SearchContacts matches email prefixes, anonymous usernames, or display_name substrings (demo).
+func (s *ChatService) SearchContacts(ctx context.Context, selfID uuid.UUID, q string, limit int) ([]repositories.UserSearchResult, error) {
+	return s.users.SearchContactPrefix(ctx, selfID, q, limit)
+}
+
 func (s *ChatService) OpenOrCreateDirect(ctx context.Context, selfID, otherID uuid.UUID) (*repositories.Conversation, error) {
 	if selfID == otherID {
 		return nil, fmt.Errorf("cannot create direct conversation with self")

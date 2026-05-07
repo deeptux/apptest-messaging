@@ -5,14 +5,29 @@ class ChatApi {
 
   final Dio _dio;
 
-  Future<List<Map<String, dynamic>>> searchUsersByEmail(String emailPrefix) async {
+  /// Search by email prefix, anonymous handle prefix, or display name substring (`q`).
+  Future<List<Map<String, dynamic>>> searchContacts(String needle) async {
     final res = await _dio.get<Map<String, dynamic>>(
       '/api/v1/users/search',
-      queryParameters: {'email': emailPrefix},
+      queryParameters: {'q': needle},
     );
     final data = res.data;
     final users = (data?['users'] as List?)?.cast<Map>() ?? const [];
     return users.map((u) => u.cast<String, dynamic>()).toList();
+  }
+
+  /// Demo anonymous signup/login via backend-minted Firebase custom token (no Bearer).
+  Future<String> anonymousSignInDemo({required String username}) async {
+    final res = await _dio.post<Map<String, dynamic>>(
+      '/api/v1/auth/anonymous',
+      data: {'username': username.trim().toLowerCase()},
+    );
+    final data = res.data;
+    final ct = data?['customToken'] as String?;
+    if (ct == null || ct.isEmpty) {
+      throw StateError('Missing customToken from /auth/anonymous');
+    }
+    return ct;
   }
 
   Future<Map<String, dynamic>> openOrCreateDirect({required String otherUserId}) async {

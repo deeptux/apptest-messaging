@@ -27,11 +27,35 @@ class _InboxScreenState extends ConsumerState<InboxScreen> {
   }
 
   @override
+  void didUpdateWidget(covariant InboxScreen oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (oldWidget.me.userId != widget.me.userId) {
+      Future.microtask(() async {
+        await ref.read(chatRepositoryProvider).syncInbox(selfUserId: widget.me.userId);
+      });
+    }
+  }
+
+  String _inboxTitle() {
+    final handle = widget.me.anonymousUsername?.trim();
+    if (handle == null || handle.isEmpty) {
+      return 'Inbox';
+    }
+    final friendly = widget.me.displayName?.trim();
+    final name = (friendly != null && friendly.isNotEmpty) ? friendly : handle;
+    return 'Inbox | Hi $name!';
+  }
+
+  @override
   Widget build(BuildContext context) {
     final db = ref.watch(appDatabaseProvider);
     return Scaffold(
       appBar: AppBar(
-        title: const Text('Inbox'),
+        title: Text(
+          _inboxTitle(),
+          maxLines: 1,
+          overflow: TextOverflow.ellipsis,
+        ),
         actions: [
           IconButton(
             tooltip: 'New chat',

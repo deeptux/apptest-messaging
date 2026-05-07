@@ -29,13 +29,16 @@ func UsersSearch(chat *services.ChatService, me *services.MeService) gin.Handler
 			return
 		}
 
-		q := strings.TrimSpace(c.Query("email"))
+		q := strings.TrimSpace(c.Query("q"))
 		if q == "" {
-			c.JSON(http.StatusBadRequest, gin.H{"error": "badRequest", "message": "email query required"})
+			q = strings.TrimSpace(c.Query("email"))
+		}
+		if len(q) < 2 {
+			c.JSON(http.StatusBadRequest, gin.H{"error": "badRequest", "message": "q or email query (min 2 chars) required"})
 			return
 		}
 
-		rows, err := chat.SearchUsersByEmailPrefix(c.Request.Context(), q, 10)
+		rows, err := chat.SearchContacts(c.Request.Context(), selfID, q, 10)
 		if err != nil {
 			c.JSON(http.StatusInternalServerError, gin.H{"error": "internal", "message": "search failed"})
 			return
@@ -46,12 +49,16 @@ func UsersSearch(chat *services.ChatService, me *services.MeService) gin.Handler
 			if r.ID == selfID {
 				continue
 			}
-			out = append(out, gin.H{
+			h := gin.H{
 				"userId":      r.ID.String(),
 				"email":       r.Email,
 				"displayName": r.DisplayName,
 				"photoUrl":    r.PhotoURL,
-			})
+			}
+			if r.AnonymousUsername != nil && *r.AnonymousUsername != "" {
+				h["anonymousUsername"] = *r.AnonymousUsername
+			}
+			out = append(out, h)
 		}
 		c.JSON(http.StatusOK, gin.H{"users": out})
 	}

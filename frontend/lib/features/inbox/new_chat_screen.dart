@@ -30,7 +30,7 @@ class _NewChatScreenState extends ConsumerState<NewChatScreen> {
       _error = null;
     });
     try {
-      final rows = await ref.read(chatApiProvider).searchUsersByEmail(_controller.text);
+      final rows = await ref.read(chatApiProvider).searchContacts(_controller.text);
       setState(() => _results = rows);
     } catch (e) {
       setState(() => _error = e.toString());
@@ -53,7 +53,7 @@ class _NewChatScreenState extends ConsumerState<NewChatScreen> {
                   child: TextField(
                     controller: _controller,
                     decoration: const InputDecoration(
-                      hintText: 'Search by email',
+                      hintText: 'Email or display name or @handle',
                       prefixIcon: Icon(Icons.search),
                     ),
                     onSubmitted: (_) => _search(),
@@ -85,11 +85,25 @@ class _NewChatScreenState extends ConsumerState<NewChatScreen> {
                   final u = _results[i];
                   final email = u['email'] as String?;
                   final name = u['displayName'] as String?;
+                  final handle = u['anonymousUsername'] as String?;
                   final userId = u['userId'] as String;
+                  final subtitleParts = <String>[];
+                  if (email != null && email.isNotEmpty) subtitleParts.add(email);
+                  if (handle != null && handle.isNotEmpty) {
+                    subtitleParts.add('@$handle');
+                  }
+                  final title = () {
+                    if (name != null && name.isNotEmpty) return name;
+                    if (email != null && email.isNotEmpty) return email;
+                    if (handle != null && handle.isNotEmpty) return '@$handle';
+                    return 'Unknown';
+                  }();
+                  final subtitleTxt = subtitleParts.join(' · ');
                   return Card(
                     child: ListTile(
-                      title: Text(name ?? email ?? 'Unknown'),
-                      subtitle: Text(email ?? ''),
+                      title: Text(title),
+                      subtitle:
+                          subtitleTxt.isEmpty ? const SizedBox.shrink() : Text(subtitleTxt),
                       trailing: const Icon(Icons.chevron_right),
                       onTap: () async {
                         final convId =

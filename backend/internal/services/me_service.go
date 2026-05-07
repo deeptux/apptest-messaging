@@ -3,6 +3,7 @@ package services
 import (
 	"context"
 	"fmt"
+	"strings"
 	"time"
 
 	firebaseauth "firebase.google.com/go/v4/auth"
@@ -13,11 +14,12 @@ import (
 
 // MeProfile is returned as JSON for GET /api/v1/me (camelCase in HTTP layer).
 type MeProfile struct {
-	UserID      string  `json:"userId"`
-	FirebaseUID string  `json:"firebaseUid"`
-	Email       *string `json:"email,omitempty"`
-	DisplayName *string `json:"displayName,omitempty"`
-	PhotoURL    *string `json:"photoUrl,omitempty"`
+	UserID            string  `json:"userId"`
+	FirebaseUID       string  `json:"firebaseUid"`
+	Email             *string `json:"email,omitempty"`
+	DisplayName       *string `json:"displayName,omitempty"`
+	PhotoURL          *string `json:"photoUrl,omitempty"`
+	AnonymousUsername *string `json:"anonymousUsername,omitempty"`
 }
 
 // MeService upserts the user row and Redis session after Firebase verification.
@@ -41,10 +43,30 @@ func (s *MeService) SyncFromToken(ctx context.Context, tok *firebaseauth.Token) 
 		return nil, fmt.Errorf("missing uid claim")
 	}
 
-	// Firebase ID tokens expose standard OIDC-style claims in Claims (email, name, picture).
+	displayName := claimString(tok.Claims, "display_name")
+	if strings.TrimSpace(displayName) == "" {
+		displayName = displayNameFromToken(tok)
+	}
+
+	existing, err := s.users.GetByFirebaseUID(ctx, firebaseUID)
+	if err != nil {
+		return nil, err
+	}
+
 	emailStr := claimString(tok.Claims, "email")
-	displayName := displayNameFromToken(tok)
+	if existing != nil && existing.AnonymousUsername != nil && strings.TrimSpace(*existing.AnonymousUsername) != "" {
+		emailStr = ""
+		if strings.TrimSpace(displayName) == "" && existing.DisplayName != nil {
+			displayName = *existing.DisplayName
+		}
+	}
+
 	photoURL := pictureFromToken(tok)
+	if existing != nil && existing.AnonymousUsername != nil && strings.TrimSpace(*existing.AnonymousUsername) != "" {
+		if photoURL == "" && existing.PhotoURL != nil {
+			photoURL = *existing.PhotoURL
+		}
+	}
 
 	id, err := s.users.UpsertByFirebaseUID(ctx, firebaseUID, emailStr, displayName, photoURL)
 	if err != nil {
@@ -75,11 +97,12 @@ func (s *MeService) SyncFromToken(ctx context.Context, tok *firebaseauth.Token) 
 
 func toMeProfile(u *repositories.User) *MeProfile {
 	return &MeProfile{
-		UserID:      u.ID.String(),
-		FirebaseUID: u.FirebaseUID,
-		Email:       u.Email,
-		DisplayName: u.DisplayName,
-		PhotoURL:    u.PhotoURL,
+		UserID:            u.ID.String(),
+		FirebaseUID:       u.FirebaseUID,
+		Email:             u.Email,
+		DisplayName:       u.DisplayName,
+		PhotoURL:          u.PhotoURL,
+		AnonymousUsername: u.AnonymousUsername,
 	}
 }
 

@@ -91,6 +91,9 @@ func run() error {
 		AllowedOrigins: cfg.CORSAllowedOrigins,
 	}))
 
+	v1Pub := r.Group("/api/v1")
+	v1Pub.POST("/auth/anonymous", handlers.AnonymousDemoSignIn(userRepo, authClient))
+
 	api := r.Group("/api/v1")
 	api.Use(middleware.FirebaseAuth(authClient))
 	api.GET("/me", handlers.Me(meSvc))

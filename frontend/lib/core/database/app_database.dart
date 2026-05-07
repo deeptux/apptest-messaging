@@ -81,7 +81,9 @@ class AppDatabase extends _$AppDatabase {
         },
       );
 
-  /// Upserts the single local profile row for the signed-in user.
+  /// Upserts the signed-in user's profile row and removes other cached profiles
+  /// (PK is [internalUserId], so each account was adding a row; multiple rows
+  /// broke [getMe] which used `getSingleOrNull` on the whole table).
   Future<void> upsertMe({
     required String internalUserId,
     required String firebaseUid,
@@ -89,19 +91,38 @@ class AppDatabase extends _$AppDatabase {
     String? displayName,
     String? photoUrl,
   }) async {
-    await into(localUsers).insertOnConflictUpdate(
-      LocalUsersCompanion(
-        internalUserId: Value(internalUserId),
-        firebaseUid: Value(firebaseUid),
-        email: Value(email),
-        displayName: Value(displayName),
-        photoUrl: Value(photoUrl),
-        updatedAt: Value(DateTime.now().toUtc()),
-      ),
-    );
+    await transaction(() async {
+      await into(localUsers).insertOnConflictUpdate(
+        LocalUsersCompanion(
+          internalUserId: Value(internalUserId),
+          firebaseUid: Value(firebaseUid),
+          email: Value(email),
+          displayName: Value(displayName),
+          photoUrl: Value(photoUrl),
+          updatedAt: Value(DateTime.now().toUtc()),
+        ),
+      );
+      await (delete(localUsers)
+            ..where((u) => u.internalUserId.equals(internalUserId).not()))
+          .go();
+    });
   }
 
-  Future<LocalUser?> getMe() => select(localUsers).getSingleOrNull();
+  /// Latest signed-in profile (by [updatedAt]). Never use `getSingleOrNull` on
+  /// the full table — more than one account may have rows after PK-per-user upserts.
+  Future<LocalUser?> getMe() async {
+    final rows = await (select(localUsers)
+          ..orderBy([
+            (u) => OrderingTerm(
+                  expression: u.updatedAt,
+                  mode: OrderingMode.desc,
+                ),
+          ])
+          ..limit(1))
+        .get();
+    if (rows.isEmpty) return null;
+    return rows.first;
+  }
 
   Future<Conversation?> getConversationById(String conversationId) {
     return (select(conversations)..where((c) => c.conversationId.equals(conversationId)))
@@ -224,6 +245,16 @@ class AppDatabase extends _$AppDatabase {
       await (delete(conversations)
             ..where((c) => c.conversationId.equals(conversationId)))
           .go();
+    });
+  }
+
+  /// Wipes cached inbox/messages when switching accounts (e.g. Google → anonymous).
+  /// Prevents showing another user's threads and 403 "not a member" on API calls.
+  Future<void> clearAllLocalChatData() async {
+    await transaction(() async {
+      await delete(messages).go();
+      await delete(conversationMembers).go();
+      await delete(conversations).go();
     });
   }
 

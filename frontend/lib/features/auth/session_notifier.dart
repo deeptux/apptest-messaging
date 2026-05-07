@@ -5,6 +5,7 @@ import 'package:apptest_messaging/core/models/me_response.dart';
 import 'package:apptest_messaging/core/providers.dart'
     show
         appDatabaseProvider,
+        chatApiProvider,
         chatRepositoryProvider,
         dioProvider,
         idTokenProvider,
@@ -26,6 +27,8 @@ const _kGoogleOAuthWebClientId = String.fromEnvironment(
 
 const _kBootstrapAuthWait = Duration(seconds: 12);
 const _kIdTokenTimeout = Duration(seconds: 20);
+
+final RegExp anonymousHandlePatternDemo = RegExp(r'^[a-z0-9_]{3,24}$');
 
 Future<String?> _fetchIdTokenWithTimeout(User user) async {
   try {
@@ -80,6 +83,8 @@ class SessionNotifier extends AsyncNotifier<MeResponse?> {
         return null;
       }
       final me = MeResponse.fromJson(data);
+
+      await _clearChatIfDifferentUser(me);
 
       await ref.read(appDatabaseProvider).upsertMe(
             internalUserId: me.userId,
@@ -219,6 +224,14 @@ class SessionNotifier extends AsyncNotifier<MeResponse?> {
     } catch (_) {}
   }
 
+  Future<void> _clearChatIfDifferentUser(MeResponse me) async {
+    final db = ref.read(appDatabaseProvider);
+    final prev = await db.getMe();
+    if (prev != null && prev.internalUserId != me.userId) {
+      await db.clearAllLocalChatData();
+    }
+  }
+
   Future<void> signInWithGoogle() async {
     state = const AsyncLoading();
     state = await AsyncValue.guard(() async {
@@ -250,6 +263,136 @@ class SessionNotifier extends AsyncNotifier<MeResponse?> {
         throw StateError('Empty /api/v1/me body');
       }
       final me = MeResponse.fromJson(data);
+
+      await _clearChatIfDifferentUser(me);
+
+      await ref.read(appDatabaseProvider).upsertMe(
+            internalUserId: me.userId,
+            firebaseUid: me.firebaseUid,
+            email: me.email,
+            displayName: me.displayName,
+            photoUrl: me.photoUrl,
+          );
+      ref.invalidate(localUserProvider);
+
+      await ref.read(chatRepositoryProvider).syncInbox(selfUserId: me.userId);
+
+      final ws = ref.read(wsClientProvider);
+      await ws.connect(idToken: token);
+      await _wsSub?.cancel();
+      _wsSub = ws.events.listen((env) async {
+        final t = env['t'] as String?;
+        final data = (env['data'] as Map?)?.cast<String, dynamic>();
+        if (t == 'msg.new' && data != null) {
+          final conversationId = data['conversationId'] as String?;
+          final messageId = data['messageId'] as String?;
+          final seq = (data['seq'] as num?)?.toInt();
+          final senderUserId = data['senderUserId'] as String?;
+          final body = data['body'] as String?;
+          final createdAt = DateTime.tryParse((data['createdAt'] as String?) ?? '')?.toUtc();
+          if (conversationId == null ||
+              messageId == null ||
+              seq == null ||
+              senderUserId == null ||
+              body == null ||
+              createdAt == null) {
+            return;
+          }
+          final db = ref.read(appDatabaseProvider);
+          await db.upsertMessage(
+            messageId: messageId,
+            conversationId: conversationId,
+            seq: seq,
+            senderUserId: senderUserId,
+            body: body,
+            createdAt: createdAt,
+            deliveredAt: DateTime.tryParse((data['deliveredAt'] as String?) ?? '')?.toUtc(),
+            deletedAt: DateTime.tryParse((data['deletedAt'] as String?) ?? '')?.toUtc(),
+          );
+          await db.updateConversationLast(
+            conversationId: conversationId,
+            lastSeq: seq,
+            lastMessageAt: createdAt,
+          );
+
+          final existingConv = await db.getConversationById(conversationId);
+          if (existingConv == null) {
+            await ref.read(chatRepositoryProvider).syncInbox(selfUserId: me.userId);
+          }
+
+          if (senderUserId != me.userId) {
+            ws.sendDelivered(conversationId: conversationId, seq: seq);
+          }
+        } else if (t == 'msg.delivered' && data != null) {
+          final conversationId = data['conversationId'] as String?;
+          final seq = (data['seq'] as num?)?.toInt();
+          final deliveredAt =
+              DateTime.tryParse((data['deliveredAt'] as String?) ?? '')?.toUtc();
+          if (conversationId == null || seq == null || deliveredAt == null) return;
+          await ref.read(appDatabaseProvider).updateMessageDeliveredAt(
+                conversationId: conversationId,
+                seq: seq,
+                deliveredAt: deliveredAt,
+              );
+        } else if (t == 'msg.deleted' && data != null) {
+          final conversationId = data['conversationId'] as String?;
+          final seq = (data['seq'] as num?)?.toInt();
+          final deletedAt =
+              DateTime.tryParse((data['deletedAt'] as String?) ?? '')?.toUtc();
+          if (conversationId == null || seq == null || deletedAt == null) return;
+          await ref.read(appDatabaseProvider).markMessageDeleted(
+                conversationId: conversationId,
+                seq: seq,
+                deletedAt: deletedAt,
+              );
+        }
+      });
+
+      broadcastAuthTabSync('login');
+      return me;
+    });
+  }
+
+  /// Demo anonymous account: POST /auth/anonymous → Firebase custom token.
+  Future<void> signInWithAnonymousDemo(String rawUsername) async {
+    final normalized = rawUsername.trim().toLowerCase();
+    if (!anonymousHandlePatternDemo.hasMatch(normalized)) {
+      state = AsyncError(
+        StateError(
+          'Use 3–24 characters: lowercase a–z, digits, underscores only.',
+        ),
+        StackTrace.current,
+      );
+      return;
+    }
+
+    state = const AsyncLoading();
+    state = await AsyncValue.guard(() async {
+      ref.read(idTokenProvider.notifier).state = null;
+      try {
+        await _googleSignIn.signOut();
+      } catch (_) {}
+      final ct = await ref.read(chatApiProvider).anonymousSignInDemo(username: normalized);
+      final cred = await FirebaseAuth.instance.signInWithCustomToken(ct);
+      final user = cred.user;
+      if (user == null) {
+        throw StateError('Firebase user missing after anonymous sign-in');
+      }
+      final token = await _fetchIdTokenWithTimeout(user);
+      if (token == null || token.isEmpty) {
+        throw StateError('Firebase ID token missing');
+      }
+      ref.read(idTokenProvider.notifier).state = token;
+
+      final dio = ref.read(dioProvider);
+      final res = await dio.get<Map<String, dynamic>>('/api/v1/me');
+      final data = res.data;
+      if (data == null) {
+        throw StateError('Empty /api/v1/me body');
+      }
+      final me = MeResponse.fromJson(data);
+
+      await _clearChatIfDifferentUser(me);
 
       await ref.read(appDatabaseProvider).upsertMe(
             internalUserId: me.userId,
@@ -356,6 +499,9 @@ class SessionNotifier extends AsyncNotifier<MeResponse?> {
 
     ref.read(idTokenProvider.notifier).state = null;
     ref.invalidate(localUserProvider);
+    try {
+      await ref.read(appDatabaseProvider).clearAllLocalChatData();
+    } catch (_) {}
     state = const AsyncData(null);
     broadcastAuthTabSync('logout');
   }
