@@ -1,5 +1,4 @@
 import 'package:apptest_messaging/core/providers.dart' show localUserProvider;
-import 'package:apptest_messaging/debug/agent_debug_log.dart';
 import 'package:apptest_messaging/features/auth/session_notifier.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
@@ -76,15 +75,7 @@ class HomeScreen extends ConsumerWidget {
         body: Center(child: CircularProgressIndicator()),
       ),
       error: (e, _) {
-        // #region agent log
         final formatted = ref.read(sessionProvider.notifier).formatDioError(e);
-        agentDebugLog(
-          hypothesisId: 'H4',
-          location: 'home_screen.dart:error',
-          message: 'sign-in error UI build',
-          data: {'formattedLen': formatted.length},
-        );
-        // #endregion
         return Scaffold(
         appBar: AppBar(title: const Text('Sign-in error')),
         body: Center(

@@ -6,6 +6,7 @@
 coverage/
 *.code-workspace
 DEV_PROGRESS.md
+DEPLOYMENT_STEPS.md
 
 # Firebase service account (never commit)
 *-firebase-adminsdk-*.json
