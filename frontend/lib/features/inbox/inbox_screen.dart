@@ -4,7 +4,7 @@ import 'package:apptest_messaging/features/auth/session_notifier.dart';
 import 'package:apptest_messaging/features/chat/chat_screen.dart';
 import 'package:apptest_messaging/features/inbox/new_chat_screen.dart';
 import 'package:apptest_messaging/core/models/me_response.dart';
-import 'package:drift/drift.dart';
+import 'package:drift/drift.dart' as drift;
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
@@ -50,15 +50,38 @@ class _InboxScreenState extends ConsumerState<InboxScreen> {
       body: StreamBuilder<List<Conversation>>(
         stream: (db.select(db.conversations)
               ..orderBy([
-                (c) => OrderingTerm(
+                (c) => drift.OrderingTerm(
                       expression: c.lastMessageAt,
-                      mode: OrderingMode.desc,
-                      nulls: NullsOrder.last,
+                      mode: drift.OrderingMode.desc,
+                      nulls: drift.NullsOrder.last,
                     ),
-                (c) => OrderingTerm(expression: c.conversationId),
+                (c) => drift.OrderingTerm(expression: c.conversationId),
               ]))
             .watch(),
         builder: (context, snap) {
+          if (snap.hasError) {
+            return Center(
+              child: Padding(
+                padding: const EdgeInsets.all(24),
+                child: Column(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    Text('Could not load inbox: ${snap.error}',
+                        textAlign: TextAlign.center),
+                    const SizedBox(height: 12),
+                    OutlinedButton(
+                      onPressed: () {
+                        Future<void>.microtask(
+                          () => ref.invalidate(appDatabaseProvider),
+                        );
+                      },
+                      child: const Text('Retry local database'),
+                    ),
+                  ],
+                ),
+              ),
+            );
+          }
           final rows = snap.data ?? const [];
           if (rows.isEmpty) {
             return const Center(
@@ -166,6 +189,9 @@ class _UnreadBadge extends ConsumerWidget {
           .watchSingleOrNull()
           .map((row) => row?.lastReadSeq ?? 0),
       builder: (context, snap) {
+        if (snap.hasError) {
+          return const SizedBox.shrink();
+        }
         final lastRead = snap.data ?? 0;
         final unread = (lastSeq - lastRead).clamp(0, 999);
         if (unread <= 0) return const SizedBox.shrink();

@@ -1,22 +1,106 @@
+import 'dart:async';
+import 'dart:ui' show PlatformDispatcher;
+
 import 'package:apptest_messaging/core/config.dart';
+import 'package:apptest_messaging/core/cross_tab_auth_sync.dart';
+import 'package:apptest_messaging/core/inactivity_logout.dart';
 import 'package:apptest_messaging/core/sqlite_init.dart';
 import 'package:apptest_messaging/features/profile/home_screen.dart';
 import 'package:apptest_messaging/firebase_options.dart';
 import 'package:firebase_core/firebase_core.dart';
+import 'package:flutter/foundation.dart' show FlutterError, kDebugMode;
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+
+bool _globalFatalRecoveryInstalled = false;
+
+/// Replaces the widget tree once so the user always sees an explanation instead
+/// of a blank canvas (common on Flutter web when an error bypasses [runZonedGuarded]).
+void _recoverFromFatalOnce(Object error, StackTrace stack) {
+  if (_globalFatalRecoveryInstalled) return;
+  _globalFatalRecoveryInstalled = true;
+  FlutterError.dumpErrorToConsole(
+    FlutterErrorDetails(exception: error, stack: stack),
+  );
+  runApp(
+    MaterialApp(
+      theme: ThemeData(
+        brightness: Brightness.dark,
+        colorScheme: ColorScheme.fromSeed(
+          seedColor: const Color(0xFFE11D48),
+          brightness: Brightness.dark,
+        ),
+      ),
+      home: Scaffold(
+        appBar: AppBar(title: const Text('Something went wrong')),
+        body: Center(
+          child: Padding(
+            padding: const EdgeInsets.all(24),
+            child: ConstrainedBox(
+              constraints: const BoxConstraints(maxWidth: 520),
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                crossAxisAlignment: CrossAxisAlignment.stretch,
+                children: [
+                  const Text(
+                    'The app hit an unexpected error. Try a full page reload '
+                    '(or clear this site’s data if it keeps happening).',
+                  ),
+                  const SizedBox(height: 16),
+                  SelectionArea(
+                    child: Text(
+                      kDebugMode ? '$error\n\n$stack' : '$error',
+                      style: const TextStyle(
+                        fontFamily: 'monospace',
+                        fontSize: 12,
+                      ),
+                    ),
+                  ),
+                ],
+              ),
+            ),
+          ),
+        ),
+      ),
+    ),
+  );
+}
 
 Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
 
-  await maybeApplySqliteAndroidWorkaround();
+  PlatformDispatcher.instance.onError = (error, stack) {
+    _recoverFromFatalOnce(error, stack);
+    return true;
+  };
 
-  // Fail fast if API base URL missing (except during tests).
-  requireApiBaseUrl();
+  ErrorWidget.builder = (details) {
+    return Material(
+      color: const Color(0xFF0B0B0F),
+      child: Center(
+        child: Padding(
+          padding: const EdgeInsets.all(24),
+          child: Text(
+            details.exceptionAsString(),
+            style: const TextStyle(color: Colors.white70),
+          ),
+        ),
+      ),
+    );
+  };
 
-  await Firebase.initializeApp(options: DefaultFirebaseOptions.currentPlatform);
+  runZonedGuarded(() async {
+    await maybeApplySqliteAndroidWorkaround();
 
-  runApp(const ProviderScope(child: MessagingApp()));
+    // Fail fast if API base URL missing (except during tests).
+    requireApiBaseUrl();
+
+    await Firebase.initializeApp(options: DefaultFirebaseOptions.currentPlatform);
+
+    runApp(const ProviderScope(child: MessagingApp()));
+  }, (e, st) {
+    _recoverFromFatalOnce(e, st);
+  });
 }
 
 class MessagingApp extends StatelessWidget {
@@ -67,7 +151,11 @@ class MessagingApp extends StatelessWidget {
           ),
         ),
       ),
-      home: const HomeScreen(),
+      home: const CrossTabAuthSync(
+        child: InactivityLogout(
+          child: HomeScreen(),
+        ),
+      ),
     );
   }
 }
