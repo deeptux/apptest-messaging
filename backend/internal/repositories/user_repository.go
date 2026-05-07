@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"strings"
 
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
@@ -68,4 +69,46 @@ WHERE firebase_uid = $1`
 	u.DisplayName = displayName
 	u.PhotoURL = photoURL
 	return &u, nil
+}
+
+type UserSearchResult struct {
+	ID          uuid.UUID
+	Email       string
+	DisplayName *string
+	PhotoURL    *string
+}
+
+func (r *UserRepository) SearchByEmailPrefix(ctx context.Context, prefix string, limit int) ([]UserSearchResult, error) {
+	prefix = strings.TrimSpace(prefix)
+	if prefix == "" {
+		return nil, nil
+	}
+	if limit <= 0 || limit > 50 {
+		limit = 10
+	}
+	const q = `
+SELECT id, email, display_name, photo_url
+FROM users
+WHERE email IS NOT NULL
+  AND email ILIKE ($1 || '%')
+ORDER BY email ASC
+LIMIT $2`
+	rows, err := r.pool.Query(ctx, q, prefix, limit)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	var out []UserSearchResult
+	for rows.Next() {
+		var r0 UserSearchResult
+		var dn, pu *string
+		if err := rows.Scan(&r0.ID, &r0.Email, &dn, &pu); err != nil {
+			return nil, err
+		}
+		r0.DisplayName = dn
+		r0.PhotoURL = pu
+		out = append(out, r0)
+	}
+	return out, rows.Err()
 }
