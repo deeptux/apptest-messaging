@@ -1,5 +1,14 @@
+import 'dart:async';
+
 import 'package:apptest_messaging/core/models/me_response.dart';
-import 'package:apptest_messaging/core/providers.dart' show appDatabaseProvider, dioProvider, idTokenProvider, localUserProvider;
+import 'package:apptest_messaging/core/providers.dart'
+    show
+        appDatabaseProvider,
+        chatRepositoryProvider,
+        dioProvider,
+        idTokenProvider,
+        localUserProvider;
+import 'package:apptest_messaging/features/chat/data/ws_client.dart';
 import 'package:dio/dio.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter/foundation.dart' show kIsWeb;
@@ -29,6 +38,9 @@ class SessionNotifier extends AsyncNotifier<MeResponse?> {
   Future<MeResponse?> build() async {
     return null;
   }
+
+  WsClient? _ws;
+  StreamSubscription? _wsSub;
 
   Future<void> signInWithGoogle() async {
     state = const AsyncLoading();
@@ -71,6 +83,48 @@ class SessionNotifier extends AsyncNotifier<MeResponse?> {
           );
       ref.invalidate(localUserProvider);
 
+      await ref.read(chatRepositoryProvider).syncInbox(selfUserId: me.userId);
+
+      final ws = WsClient();
+      _ws = ws;
+      await ws.connect(idToken: token);
+      await _wsSub?.cancel();
+      _wsSub = ws.events.listen((env) async {
+        final t = env['t'] as String?;
+        final data = (env['data'] as Map?)?.cast<String, dynamic>();
+        if (t == 'msg.new' && data != null) {
+          final conversationId = data['conversationId'] as String?;
+          final messageId = data['messageId'] as String?;
+          final seq = (data['seq'] as num?)?.toInt();
+          final senderUserId = data['senderUserId'] as String?;
+          final body = data['body'] as String?;
+          final createdAt = DateTime.tryParse((data['createdAt'] as String?) ?? '')?.toUtc();
+          if (conversationId == null ||
+              messageId == null ||
+              seq == null ||
+              senderUserId == null ||
+              body == null ||
+              createdAt == null) {
+            return;
+          }
+          final db = ref.read(appDatabaseProvider);
+          await db.upsertMessage(
+            messageId: messageId,
+            conversationId: conversationId,
+            seq: seq,
+            senderUserId: senderUserId,
+            body: body,
+            createdAt: createdAt,
+            deliveredAt: DateTime.tryParse((data['deliveredAt'] as String?) ?? '')?.toUtc(),
+          );
+          await db.updateConversationLast(
+            conversationId: conversationId,
+            lastSeq: seq,
+            lastMessageAt: createdAt,
+          );
+        }
+      });
+
       return me;
     });
   }
@@ -78,6 +132,10 @@ class SessionNotifier extends AsyncNotifier<MeResponse?> {
   Future<void> signOut() async {
     await FirebaseAuth.instance.signOut();
     await _googleSignIn.signOut();
+    await _wsSub?.cancel();
+    _wsSub = null;
+    await _ws?.close();
+    _ws = null;
     ref.read(idTokenProvider.notifier).state = null;
     ref.invalidate(localUserProvider);
     state = const AsyncData(null);

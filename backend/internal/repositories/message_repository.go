@@ -2,6 +2,7 @@ package repositories
 
 import (
 	"context"
+	"errors"
 	"time"
 
 	"github.com/google/uuid"
@@ -25,6 +26,70 @@ type MessageRepository struct {
 
 func NewMessageRepository(pool *pgxpool.Pool) *MessageRepository {
 	return &MessageRepository{pool: pool}
+}
+
+// CreateInConversation creates a new message with a new seq, or returns the existing
+// message for the same (conversationId, idempotencyKey).
+func (r *MessageRepository) CreateInConversation(
+	ctx context.Context,
+	conversationID uuid.UUID,
+	senderUserID uuid.UUID,
+	idempotencyKey string,
+	body string,
+) (*MessageRow, bool, error) {
+	tx, err := r.pool.Begin(ctx)
+	if err != nil {
+		return nil, false, err
+	}
+	defer func() { _ = tx.Rollback(ctx) }()
+
+	const selExisting = `
+SELECT id, conversation_id, seq, sender_user_id, body, created_at, delivered_at
+FROM messages
+WHERE conversation_id = $1 AND idempotency_key = $2`
+	var existing MessageRow
+	var deliveredAt *time.Time
+	err = tx.QueryRow(ctx, selExisting, conversationID, idempotencyKey).
+		Scan(&existing.ID, &existing.ConversationID, &existing.Seq, &existing.SenderUserID, &existing.Body, &existing.CreatedAt, &deliveredAt)
+	if err == nil {
+		existing.DeliveredAt = deliveredAt
+		if err := tx.Commit(ctx); err != nil {
+			return nil, false, err
+		}
+		return &existing, false, nil
+	}
+	if !errors.Is(err, pgx.ErrNoRows) {
+		return nil, false, err
+	}
+
+	const bumpSeq = `
+UPDATE conversations
+SET last_seq = last_seq + 1,
+    last_message_at = now(),
+    updated_at = now()
+WHERE id = $1
+RETURNING last_seq`
+	var seq int64
+	if err := tx.QueryRow(ctx, bumpSeq, conversationID).Scan(&seq); err != nil {
+		return nil, false, err
+	}
+
+	const ins = `
+INSERT INTO messages (conversation_id, seq, sender_user_id, body, idempotency_key)
+VALUES ($1, $2, $3, $4, $5)
+RETURNING id, conversation_id, seq, sender_user_id, body, created_at, delivered_at`
+	var m MessageRow
+	var deliveredAt2 *time.Time
+	if err := tx.QueryRow(ctx, ins, conversationID, seq, senderUserID, body, idempotencyKey).
+		Scan(&m.ID, &m.ConversationID, &m.Seq, &m.SenderUserID, &m.Body, &m.CreatedAt, &deliveredAt2); err != nil {
+		return nil, false, err
+	}
+	m.DeliveredAt = deliveredAt2
+
+	if err := tx.Commit(ctx); err != nil {
+		return nil, false, err
+	}
+	return &m, true, nil
 }
 
 func (r *MessageRepository) ListByConversationBeforeSeq(ctx context.Context, conversationID uuid.UUID, beforeSeq *int64, limit int) ([]MessageRow, error) {

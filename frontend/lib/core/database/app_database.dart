@@ -160,6 +160,19 @@ class AppDatabase extends _$AppDatabase {
     );
   }
 
+  Future<void> updateConversationLast({
+    required String conversationId,
+    required int lastSeq,
+    DateTime? lastMessageAt,
+  }) async {
+    await (update(conversations)..where((c) => c.conversationId.equals(conversationId))).write(
+      ConversationsCompanion(
+        lastSeq: Value(lastSeq),
+        lastMessageAt: Value(lastMessageAt),
+      ),
+    );
+  }
+
   Future<void> updateMessageDeliveredAt({
     required String conversationId,
     required int seq,

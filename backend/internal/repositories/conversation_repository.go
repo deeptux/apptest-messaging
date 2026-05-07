@@ -2,9 +2,11 @@ package repositories
 
 import (
 	"context"
+	"errors"
 	"time"
 
 	"github.com/google/uuid"
+	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
 )
 
@@ -74,9 +76,34 @@ WHERE conversation_id = $1 AND user_id = $2`
 	var one int
 	err := r.pool.QueryRow(ctx, q, conversationID, userID).Scan(&one)
 	if err != nil {
-		return false, nil
+		if errors.Is(err, pgx.ErrNoRows) {
+			return false, nil
+		}
+		return false, err
 	}
 	return true, nil
+}
+
+func (r *ConversationRepository) ListMemberUserIDs(ctx context.Context, conversationID uuid.UUID) ([]uuid.UUID, error) {
+	const q = `
+SELECT user_id
+FROM conversation_members
+WHERE conversation_id = $1`
+	rows, err := r.pool.Query(ctx, q, conversationID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	var out []uuid.UUID
+	for rows.Next() {
+		var id uuid.UUID
+		if err := rows.Scan(&id); err != nil {
+			return nil, err
+		}
+		out = append(out, id)
+	}
+	return out, rows.Err()
 }
 
 func (r *ConversationRepository) ListInbox(ctx context.Context, userID uuid.UUID, limit int) ([]InboxRow, error) {

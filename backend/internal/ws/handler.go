@@ -8,8 +8,10 @@ import (
 
 	firebaseauth "firebase.google.com/go/v4/auth"
 	"github.com/gin-gonic/gin"
+	"github.com/google/uuid"
 	"github.com/gorilla/websocket"
 
+	"github.com/apptest-messaging/backend/internal/repositories"
 	"github.com/apptest-messaging/backend/internal/services"
 )
 
@@ -38,6 +40,8 @@ type HandlerDeps struct {
 	Firebase *firebaseauth.Client
 	Me       *services.MeService
 	Hub      *Hub
+	Convs    *repositories.ConversationRepository
+	Msgs     *repositories.MessageRepository
 
 	AllowedOrigins []string
 }
@@ -80,6 +84,11 @@ func Handler(deps HandlerDeps) gin.HandlerFunc {
 
 		userID, firebaseUID, ok := authHandshake(c.Request, deps.Firebase, deps.Me, wsConn)
 		if !ok {
+			return
+		}
+		selfID, err := uuid.Parse(userID)
+		if err != nil {
+			_ = sendAuthErr(wsConn, "invalid user id")
 			return
 		}
 
@@ -150,6 +159,85 @@ func Handler(deps HandlerDeps) gin.HandlerFunc {
 					ID:   env.ID,
 					Data: env.Data,
 				})
+			case EventMsgSend:
+				if strings.TrimSpace(env.ID) == "" {
+					_ = sendErr(wsConn, ErrBadRequest, "missing id")
+					continue
+				}
+				var data struct {
+					ConversationID string `json:"conversationId"`
+					Body           string `json:"body"`
+				}
+				if err := json.Unmarshal(env.Data, &data); err != nil {
+					_ = sendErr(wsConn, ErrBadRequest, "invalid data")
+					continue
+				}
+				convID, err := uuid.Parse(strings.TrimSpace(data.ConversationID))
+				if err != nil {
+					_ = sendErr(wsConn, ErrBadRequest, "invalid conversationId")
+					continue
+				}
+				body := strings.TrimSpace(data.Body)
+				if body == "" {
+					_ = sendErr(wsConn, ErrBadRequest, "empty body")
+					continue
+				}
+
+				isMember, err := deps.Convs.IsMember(c.Request.Context(), convID, selfID)
+				if err != nil || !isMember {
+					_ = sendErr(wsConn, ErrUnauthorized, "not a member")
+					continue
+				}
+
+				msg, _, err := deps.Msgs.CreateInConversation(
+					c.Request.Context(),
+					convID,
+					selfID,
+					strings.TrimSpace(env.ID),
+					body,
+				)
+				if err != nil {
+					_ = sendErr(wsConn, ErrInternal, "persist failed")
+					continue
+				}
+
+				ack := EnvelopeV1{
+					V:  ProtocolVersionV1,
+					T:  EventMsgAck,
+					ID: env.ID,
+					Data: mustMarshal(map[string]any{
+						"conversationId": convID.String(),
+						"messageId":      msg.ID.String(),
+						"seq":            msg.Seq,
+						"createdAt":      msg.CreatedAt.UTC().Format(time.RFC3339Nano),
+					}),
+				}
+				ackBytes, _ := json.Marshal(ack)
+				conn.TrySend(ackBytes)
+
+				newEnv := EnvelopeV1{
+					V: ProtocolVersionV1,
+					T: EventMsgNew,
+					Data: mustMarshal(map[string]any{
+						"conversationId": convID.String(),
+						"messageId":      msg.ID.String(),
+						"seq":            msg.Seq,
+						"senderUserId":   msg.SenderUserID.String(),
+						"body":           msg.Body,
+						"createdAt":      msg.CreatedAt.UTC().Format(time.RFC3339Nano),
+						"deliveredAt":    nil,
+					}),
+				}
+				newBytes, _ := json.Marshal(newEnv)
+
+				memberIDs, err := deps.Convs.ListMemberUserIDs(c.Request.Context(), convID)
+				if err != nil {
+					_ = sendErr(wsConn, ErrInternal, "fanout failed")
+					continue
+				}
+				for _, uid := range memberIDs {
+					deps.Hub.SendToUser(uid.String(), newBytes)
+				}
 			default:
 				_ = sendErr(wsConn, ErrBadRequest, "unknown event")
 			}

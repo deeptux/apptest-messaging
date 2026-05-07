@@ -86,6 +86,8 @@ func run() error {
 		Firebase:       authClient,
 		Me:             meSvc,
 		Hub:            wsHub,
+		Convs:          convRepo,
+		Msgs:           msgRepo,
 		AllowedOrigins: cfg.CORSAllowedOrigins,
 	}))
 
