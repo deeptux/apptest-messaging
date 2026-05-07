@@ -1,93 +1,140 @@
-# Frontend (Flutter)
+# Backend (Go + Gin)
 
-Phase 1: Google sign-in via **Firebase Auth**, Riverpod state, **Drift** local cache of `/api/v1/me`, **Dio** HTTP client.
+Module: `github.com/apptest-messaging/backend` — replace with your real module path before open-sourcing if needed.
 
-## One-time setup
+## Run locally
 
-1. Install [Flutter](https://docs.flutter.dev/get-started/install) (stable).
-2. From this directory:
+Prerequisites: Go 1.22+, Postgres + Redis (see repo root `docker-compose.yml`), Firebase **service account** JSON, `migrate` CLI.
 
-   ```bash
-   flutter pub get
-   ```
+```powershell
+cd backend
+$env:DATABASE_URL = "postgres://app:app@localhost:5433/app?sslmode=disable"
+$env:REDIS_URL = "redis://localhost:6379/0"
+$env:GOOGLE_APPLICATION_CREDENTIALS = "C:\path\to\service-account.json"
+$env:CORS_ALLOWED_ORIGINS = "http://localhost:7357,http://127.0.0.1:7357"
+migrate -path ./migrations -database $env:DATABASE_URL up
+go run ./cmd/server
+```
 
-   If you change the Drift table in `lib/core/database/app_database.dart`, run
-   `dart run build_runner build --delete-conflicting-outputs` to refresh
-   `app_database.g.dart` (the repo ships a generated file for convenience).
+## Migrations
 
-   **Web (Chrome):** Drift uses the deprecated-but-practical `WebDatabase` (sql.js).
-   `web/index.html` includes the sql.js script so `flutter run -d chrome` can compile
-   without `dart:ffi`. Native Android/iOS/desktop still use `drift/native.dart` via
-   conditional imports (`opened_db_*.dart`, `sqlite_init_*.dart`).
+Uses [golang-migrate](https://github.com/golang-migrate/migrate):
 
-   **Web: Google Sign-In client ID:** `google_sign_in_web` needs your OAuth 2.0 **Web client**
-   ID (`….apps.googleusercontent.com`). It is **not** the same field as `FirebaseOptions.apiKey`.
-   Find it: **Google Cloud Console** → APIs & Services → **Credentials** → OAuth 2.0 Client IDs
-   → type **Web application** (often auto-created for your Firebase project).
+```bash
+go install -tags 'postgres' github.com/golang-migrate/migrate/v4/cmd/migrate@latest
+```
 
-   - **Option A (CLI):** pass at compile time (recommended for clones who don’t edit HTML):
+For **Supabase**, use the **direct (session)** connection string when running `migrate up`; the pooler URL can fail for DDL.
 
-     ```bash
-     flutter run -d chrome --web-port=59392 \
-       --dart-define=API_BASE_URL=http://localhost:8080 \
-       --dart-define=GOOGLE_OAUTH_WEB_CLIENT_ID=YOUR_ID.apps.googleusercontent.com
-     ```
+## Firebase credentials (single supported path)
 
-   - **Option B (HTML):** uncomment and fill the `<meta name="google-signin-client_id" … />`
-     line in `web/index.html` (see comment there). If the meta tag is set, you can omit the
-     `GOOGLE_OAUTH_WEB_CLIENT_ID` define.
+“This backend only supports file-based Admin credentials via GOOGLE_APPLICATION_CREDENTIALS.”
+“We do not support providing the JSON contents in an env var (e.g. FIREBASE_CREDENTIALS_JSON).”
+“Create/download it from Firebase Console → Project settings → Service accounts → Generate new private key.”
 
-3. **Configure Firebase for this Flutter app (`flutterfire configure`)**
+Set **`GOOGLE_APPLICATION_CREDENTIALS`** to the filesystem path of your Firebase Admin service account JSON (same Firebase project as the Flutter app). Do not commit this file.
 
-   Your Flutter code calls `Firebase.initializeApp(options: …)`. Those options
-   (project id, API keys, Android/iOS/Web app ids, etc.) must match a real
-   **Firebase project**. The **FlutterFire CLI** reads your Firebase/Google
-   login, lists your Firebase projects, and **writes generated Dart + platform
-   files** so the app can compile and talk to *your* Firebase.
+On **Railway**, mount the JSON as a secret file and set `GOOGLE_APPLICATION_CREDENTIALS` to the in-container path (e.g. `/secrets/firebase-admin.json`).
 
-   **What it replaces:** Until you run this, the repo may ship a small **stub**
-   `lib/firebase_options.dart` that throws at startup with a clear message.
-   After a successful configure, that file is **replaced** by the real one.
+## Deploy to Railway (step-by-step summary)
 
-   **What you run (from this `frontend/` folder):**
+Full narrative is in the repo root [`README.md`](../README.md#deploy-backend-to-railway-step-by-step). Backend operators: use this checklist when wiring the service.
 
-   ```bash
-   dart pub global activate flutterfire_cli
-   flutterfire configure
-   ```
+### Prerequisites (copy)
 
-   **Windows:** If `flutterfire` is not found, add `%LOCALAPPDATA%\Pub\Cache\bin` to your user **PATH** (new terminal), or use:
+| Item | Where |
+|------|--------|
+| `DATABASE_URL` | Supabase → Database settings. Use **session/direct** URL for `migrate up`; pooler (6543) may break DDL. |
+| `REDIS_URL` | Upstash → **TLS** URL (`rediss://…`). |
+| Admin SDK JSON | Firebase Console → Project settings → Service accounts → **Generate new private key**. Never commit. |
 
-   ```bash
-   dart pub global run flutterfire_cli:flutterfire configure
-   ```
+### Railway variables (required)
 
-   The wizard will ask you to pick the Firebase project and which platforms
-   (Android, iOS, web, …) to include. It typically creates/updates:
+| Variable | Notes |
+|----------|--------|
+| `DATABASE_URL` | Postgres connection string (production). |
+| `REDIS_URL` | Upstash `rediss://` URL. |
+| `CORS_ALLOWED_ORIGINS` | Comma-separated exact origins for browser clients (e.g. prod `https://<site>.web.app` when hosting Flutter web). |
+| `GOOGLE_APPLICATION_CREDENTIALS` | Path **inside the container** to the mounted JSON, e.g. `/secrets/firebase-admin.json`. |
+| `PORT` | Leave unset; Railway sets it. The server listens on `os.Getenv("PORT")` (default `8080` only for local). |
 
-   - `lib/firebase_options.dart` — `DefaultFirebaseOptions` for `Firebase.initializeApp`
-   - Android: e.g. `android/app/google-services.json` (from Firebase)
-   - iOS/macOS: e.g. `ios/Runner/GoogleService-Info.plist`
-   - Web: may update `web/index.html` / related config as the tool requires
+### Secret file mounting (Firebase Admin)
 
-   **Commit policy:** Commit the generated **non-secret** config files the CLI
-   adds (they are normal for FlutterFire). Do **not** commit Firebase **Admin**
-   service account JSON (that stays on the **Go server** only).
+1. In Railway, upload the service account JSON as a **secret file** (not as a pasted multi-line env var—this repo’s server expects a **filesystem path**).
+2. Set `GOOGLE_APPLICATION_CREDENTIALS` to Railway’s mount path exactly (case-sensitive).
+3. Redeploy after changing the file or path.
 
-4. Follow Firebase Console steps in the repo root `README.md` (Android / iOS / Web apps, Google sign-in, authorized domains).
+### Migrations (production)
 
-5. Run against local API (adjust host for Android emulator: `http://10.0.2.2:8080`):
+Run from a trusted machine (CI or laptop) against the **session** Supabase URL:
 
-   ```bash
-   flutter run -d chrome --dart-define=API_BASE_URL=http://localhost:8080
-   ```
+```powershell
+cd backend
+$env:DATABASE_URL = "<SUPABASE_SESSION_POSTGRES_URL>"
+migrate -path ./migrations -database $env:DATABASE_URL up
+```
 
-## API base URL
+### Verification checklist (production)
 
-Set `API_BASE_URL` via `--dart-define` (see above). No default is baked in: missing define shows an error at startup.
+After the service is live, replace `<host>` with your Railway public hostname:
 
-## Phase 1 limitations
+```bash
+curl -sS https://<host>/healthz
+curl -sS https://<host>/readyz
+curl -i https://<host>/api/v1/me
+```
 
-- Firebase **ID token** is kept **in memory** only (Riverpod). It is cleared on app restart until the user signs in again.
-- Until `flutterfire configure` is run, `firebase_options.dart` may be a **stub**
-  that throws at startup; replace it by running the CLI (see step 3).
+| Endpoint | Expected |
+|----------|----------|
+| `GET /healthz` | `200`, `{"status":"ok"}` |
+| `GET /readyz` | `200` if Postgres + Redis OK; `503` with details if degraded |
+| `GET /api/v1/me` | `401` without `Authorization: Bearer` |
+
+Then verify an authenticated call from the Flutter app (`API_BASE_URL=https://<host>`) after Google sign-in.
+
+### Troubleshooting quick reference
+
+| Issue | Likely cause |
+|-------|----------------|
+| `readyz` 503 | Bad `DATABASE_URL` / network; wrong `REDIS_URL` (non-TLS vs TLS); Redis firewall |
+| Token verify errors | Wrong `GOOGLE_APPLICATION_CREDENTIALS` path; JSON for different Firebase project |
+| Listen / crash on boot | Overriding `PORT` incorrectly; missing required env |
+| Browser CORS failure | `CORS_ALLOWED_ORIGINS` missing the browser’s exact `Origin` |
+
+## HTTP routes
+
+| Method | Path | Auth |
+|--------|------|------|
+| GET | `/healthz` | No |
+| GET | `/readyz` | No |
+| GET | `/api/v1/me` | Bearer Firebase ID token |
+
+## Redis session keys
+
+After a successful `/api/v1/me`:
+
+- Key: `session:user:{firebaseUid}`
+- TTL: 86400 seconds (refreshed on each successful `/api/v1/me`)
+
+Verify locally (PowerShell, assumes Redis from `docker compose up -d`):
+
+```powershell
+# Replace with the firebaseUid returned by /api/v1/me
+$uid = "YOUR_FIREBASE_UID"
+
+docker compose exec -T redis redis-cli EXISTS "session:user:$uid"
+docker compose exec -T redis redis-cli TTL "session:user:$uid"
+
+# Call /api/v1/me again, then re-check TTL to confirm it refreshed.
+docker compose exec -T redis redis-cli TTL "session:user:$uid"
+```
+
+## Docker image
+
+From repo root (or `backend/` as context):
+
+```bash
+docker build -f backend/Dockerfile -t apptest-api ./backend
+```
+
+The server listens on **`PORT`** (default `8080`). Railway injects `PORT` automatically.

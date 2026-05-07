@@ -34,7 +34,72 @@ For **Supabase**, use the **direct (session)** connection string when running `m
 
 Set **`GOOGLE_APPLICATION_CREDENTIALS`** to the filesystem path of your Firebase Admin service account JSON (same Firebase project as the Flutter app). Do not commit this file.
 
-On **Railway**, mount the JSON as a secret file and set `GOOGLE_APPLICATION_CREDENTIALS` to the in-container path (e.g. `/secrets/firebase.json`).
+On **Railway**, mount the JSON as a secret file and set `GOOGLE_APPLICATION_CREDENTIALS` to the in-container path (e.g. `/secrets/firebase-admin.json`).
+
+## Deploy to Railway (step-by-step summary)
+
+Full narrative is in the repo root [`README.md`](../README.md#deploy-backend-to-railway-step-by-step). Backend operators: use this checklist when wiring the service.
+
+### Prerequisites (copy)
+
+| Item | Where |
+|------|--------|
+| `DATABASE_URL` | Supabase → Database settings. Use **session/direct** URL for `migrate up`; pooler (6543) may break DDL. |
+| `REDIS_URL` | Upstash → **TLS** URL (`rediss://…`). |
+| Admin SDK JSON | Firebase Console → Project settings → Service accounts → **Generate new private key**. Never commit. |
+
+### Railway variables (required)
+
+| Variable | Notes |
+|----------|--------|
+| `DATABASE_URL` | Postgres connection string (production). |
+| `REDIS_URL` | Upstash `rediss://` URL. |
+| `CORS_ALLOWED_ORIGINS` | Comma-separated exact origins for browser clients (e.g. prod `https://<site>.web.app` when hosting Flutter web). |
+| `GOOGLE_APPLICATION_CREDENTIALS` | Path **inside the container** to the mounted JSON, e.g. `/secrets/firebase-admin.json`. |
+| `PORT` | Leave unset; Railway sets it. The server listens on `os.Getenv("PORT")` (default `8080` only for local). |
+
+### Secret file mounting (Firebase Admin)
+
+1. In Railway, upload the service account JSON as a **secret file** (not as a pasted multi-line env var—this repo’s server expects a **filesystem path**).
+2. Set `GOOGLE_APPLICATION_CREDENTIALS` to Railway’s mount path exactly (case-sensitive).
+3. Redeploy after changing the file or path.
+
+### Migrations (production)
+
+Run from a trusted machine (CI or laptop) against the **session** Supabase URL:
+
+```powershell
+cd backend
+$env:DATABASE_URL = "<SUPABASE_SESSION_POSTGRES_URL>"
+migrate -path ./migrations -database $env:DATABASE_URL up
+```
+
+### Verification checklist (production)
+
+After the service is live, replace `<host>` with your Railway public hostname:
+
+```bash
+curl -sS https://<host>/healthz
+curl -sS https://<host>/readyz
+curl -i https://<host>/api/v1/me
+```
+
+| Endpoint | Expected |
+|----------|----------|
+| `GET /healthz` | `200`, `{"status":"ok"}` |
+| `GET /readyz` | `200` if Postgres + Redis OK; `503` with details if degraded |
+| `GET /api/v1/me` | `401` without `Authorization: Bearer` |
+
+Then verify an authenticated call from the Flutter app (`API_BASE_URL=https://<host>`) after Google sign-in.
+
+### Troubleshooting quick reference
+
+| Issue | Likely cause |
+|-------|----------------|
+| `readyz` 503 | Bad `DATABASE_URL` / network; wrong `REDIS_URL` (non-TLS vs TLS); Redis firewall |
+| Token verify errors | Wrong `GOOGLE_APPLICATION_CREDENTIALS` path; JSON for different Firebase project |
+| Listen / crash on boot | Overriding `PORT` incorrectly; missing required env |
+| Browser CORS failure | `CORS_ALLOWED_ORIGINS` missing the browser’s exact `Origin` |
 
 ## HTTP routes
 

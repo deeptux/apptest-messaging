@@ -147,20 +147,141 @@ Do **not** add a debug token endpoint to the server. Recommended:
 
 Minimum: follow the Flutter flow above; the app calls `/api/v1/me` with `Authorization: Bearer <idToken>`.
 
-## Railway (high level)
+## Deploy backend to Railway (step-by-step)
 
-1. Create a Railway service from this repo; set **root directory** to `backend/` **or** use a Dockerfile path `backend/Dockerfile`.
-2. Set environment variables in Railway:
+This runbook assumes you already have **Supabase** (Postgres), **Upstash** (Redis), **Firebase** (same project as Flutter), and a **Railway** account.
 
-   - `DATABASE_URL` (Supabase or other Postgres)
-   - `REDIS_URL` (Upstash TLS URL)
-   - `GOOGLE_APPLICATION_CREDENTIALS` — prefer mounting the JSON as a **secret file** and set this env to the **in-container path**, **or** bake path in Dockerfile from a build secret (advanced).
-   - `CORS_ALLOWED_ORIGINS` — include your future Flutter web origin, e.g. `https://your-app.web.app` (update when known).
-   - Railway provides **`PORT`** automatically; the server listens on `PORT`.
+### 1) Accounts and prerequisites
 
-3. Build uses [`backend/Dockerfile`](backend/Dockerfile): multi-stage Go build, minimal runtime image.
+| Service | What you need |
+|---------|----------------|
+| **Railway** | Project + new service from this GitHub repo |
+| **Supabase** | Project; copy **Postgres** connection strings |
+| **Upstash** | Redis database; copy **TLS** URL (`rediss://…`) |
+| **Firebase** | Project; ability to download **Admin SDK** JSON (service account) |
 
-See [`backend/README.md`](backend/README.md) for backend-specific notes.
+Build entrypoint: [`backend/Dockerfile`](backend/Dockerfile) (multi-stage Go build). In Railway, either set the service **root directory** to `backend/` or point the Docker build at `backend/Dockerfile` with repo root as context (see Railway UI).
+
+### 2) Obtain `DATABASE_URL` (Supabase)
+
+1. In Supabase → **Project Settings** → **Database**, copy a Postgres URL.
+2. **Migrations (`migrate up`):** use the **direct / session** connection string (often port **5432**). The **transaction pooler** (often **6543**) can fail DDL used by `golang-migrate`.
+3. **Running app:** you may use the pooler for runtime if you prefer; many teams use one URL for both to start—if `migrate` fails, switch `migrate` to the session URL only.
+
+Example shape (values are yours, not copy-paste):
+
+```text
+postgres://postgres.<ref>:<password>@aws-0-<region>.pooler.supabase.com:5432/postgres?sslmode=require
+```
+
+Set this as Railway variable **`DATABASE_URL`**.
+
+### 3) Obtain `REDIS_URL` (Upstash)
+
+1. In Upstash → your Redis → **Connect** → choose **TLS** URL.
+2. It should start with **`rediss://`** (note the extra **`s`**). The Go client and this app expect that for TLS.
+
+Set as Railway variable **`REDIS_URL`** (same name as local).
+
+### 4) Firebase Admin JSON (never commit)
+
+1. Firebase Console → **Project settings** → **Service accounts** → **Generate new private key**.
+2. Save the `.json` locally only; **do not** commit it.
+
+### 5) Railway environment variables
+
+Set these in the Railway service (**Variables** tab):
+
+| Variable | Example / notes |
+|----------|------------------|
+| `DATABASE_URL` | Supabase Postgres URL (`sslmode=require` as required) |
+| `REDIS_URL` | Upstash `rediss://default:...@...upstash.io:6379` |
+| `CORS_ALLOWED_ORIGINS` | Comma-separated **exact** origins, **no spaces**. Include your **production** Flutter web origin when known, e.g. `https://your-app.web.app` (see also **Production CORS** below). |
+| `GOOGLE_APPLICATION_CREDENTIALS` | **In-container path** to the mounted Admin JSON (next step), e.g. `/secrets/firebase-admin.json` |
+| `PORT` | **Do not set manually** — Railway injects `PORT`; the server listens on it. |
+
+### 6) Mount the Admin JSON as a Railway secret file
+
+Railway can mount a file at a fixed path so `GOOGLE_APPLICATION_CREDENTIALS` matches a real path inside the container.
+
+1. In Railway → your service → **Variables** (or **Settings** → secrets/files, depending on UI), add the JSON as a **secret file**.
+2. Note the **mount path** Railway shows (e.g. `/secrets/firebase-admin.json`).
+3. Set **`GOOGLE_APPLICATION_CREDENTIALS`** to that **exact** path.
+
+If the path is wrong, Firebase Admin will fail at startup or on first token verify.
+
+### 7) Run migrations against production (before or after first deploy)
+
+From your machine (with `migrate` installed), use the **session/direct** Supabase URL:
+
+```powershell
+cd backend
+$env:DATABASE_URL = "<SUPABASE_SESSION_POSTGRES_URL>"
+migrate -path ./migrations -database $env:DATABASE_URL up
+```
+
+### 8) Verification checklist (after deploy)
+
+Replace `<railway-host>` with your public Railway URL (no trailing slash).
+
+```bash
+curl -sS https://<railway-host>/healthz
+curl -sS https://<railway-host>/readyz
+curl -i https://<railway-host>/api/v1/me
+```
+
+- **`/healthz`:** `200` JSON `{"status":"ok"}` (no DB/Redis required).
+- **`/readyz`:** `200` only if Postgres + Redis reachable; `503` if degraded (check env vars and URLs).
+- **`/api/v1/me`:** `401` without `Authorization: Bearer <Firebase ID token>` is expected.
+
+Then run **Flutter** (web or mobile) with `--dart-define=API_BASE_URL=https://<railway-host>` and complete Google sign-in; confirm profile loads from `/api/v1/me`.
+
+### 9) Troubleshooting (Railway)
+
+| Symptom | Things to check |
+|---------|------------------|
+| App won’t bind / wrong port | Ensure you did **not** override `PORT`; server must listen on Railway’s `PORT`. |
+| `password authentication failed` / DB errors | Wrong `DATABASE_URL`, typo in password, or using pooler URL for migrations. |
+| Redis connection errors | `REDIS_URL` must be Upstash **`rediss://`** TLS URL; region / token correct. |
+| Firebase / token verify errors | `GOOGLE_APPLICATION_CREDENTIALS` path must match **mounted** file; JSON must be for the **same** Firebase project as the client. |
+| CORS errors from browser | `CORS_ALLOWED_ORIGINS` must include the **exact** `Origin` the browser sends (scheme + host + port). No `*`. |
+
+See [`backend/README.md`](backend/README.md) for backend-focused notes and Redis session verification locally.
+
+## Production CORS for Firebase Hosting
+
+Browser requests from Flutter web include an **`Origin`** header. The API allowlists origins via **`CORS_ALLOWED_ORIGINS`** (comma-separated, **no spaces**). Entries must match **exactly** — scheme (`http` vs `https`), host, and port.
+
+- **Do not** use `*` in production.
+- **Do not** rely on wildcards; list each origin you serve (e.g. `https://<project-id>.web.app`).
+
+**Development (local Flutter web):** use a **fixed** dev port and list both localhost forms if needed:
+
+```text
+CORS_ALLOWED_ORIGINS=http://localhost:59392,http://127.0.0.1:59392
+```
+
+**Production (Firebase Hosting):** set the deployed site origin(s) only, for example:
+
+```text
+CORS_ALLOWED_ORIGINS=https://<project-id>.web.app
+```
+
+If you add a **custom domain** in Firebase Hosting, append it as another comma-separated entry (same rules).
+
+After changing Railway env vars, **redeploy** or restart the service so the new allowlist is picked up.
+
+## Production / integration troubleshooting
+
+Use this checklist when the hosted Flutter web app talks to the Railway API.
+
+| Symptom | What to verify |
+|---------|----------------|
+| Browser **CORS** error (`Access-Control-Allow-Origin`, blocked by CORS policy) | `CORS_ALLOWED_ORIGINS` on Railway includes the **exact** `Origin` (https + host, no trailing slash). No `*`. Dev vs prod origins differ — update both sides when you change ports or hosts. |
+| **`/readyz` returns 503** | `DATABASE_URL` correct for Supabase; `REDIS_URL` is Upstash **`rediss://`**; secrets mounted; outbound network from Railway OK. |
+| **Google sign-in fails on the hosted site** | Firebase Console → Authentication → **Authorized domains** includes your Hosting domain; **OAuth Web client ID** used in `flutter build web` (or `web/index.html` meta) matches Google Cloud; [People API](https://console.cloud.google.com/apis/library/people.googleapis.com) enabled if you saw `people.googleapis.com` errors. |
+| **`origin_mismatch` (OAuth)** | Google Cloud OAuth **Authorized JavaScript origins** must list your Hosting URL (and dev URL + port if testing locally). |
+| **401 on `/api/v1/me` after sign-in** | API URL in `--dart-define=API_BASE_URL` matches Railway; Firebase project matches Admin SDK JSON on the server; clock skew unusual but possible. |
 
 ## Redis session cache (Phase 1)
 
