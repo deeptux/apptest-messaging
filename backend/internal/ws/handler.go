@@ -46,6 +46,29 @@ type HandlerDeps struct {
 	AllowedOrigins []string
 }
 
+func originAllowed(allowedOrigins []string, origin string) bool {
+	for _, a := range allowedOrigins {
+		a = strings.TrimSpace(a)
+		if a == "" {
+			continue
+		}
+		if a == "*" {
+			return true
+		}
+		if strings.HasSuffix(a, "*") {
+			prefix := strings.TrimSuffix(a, "*")
+			if strings.HasPrefix(origin, prefix) {
+				return true
+			}
+			continue
+		}
+		if origin == a {
+			return true
+		}
+	}
+	return false
+}
+
 var upgrader = websocket.Upgrader{
 	ReadBufferSize:  4096,
 	WriteBufferSize: 4096,
@@ -65,12 +88,7 @@ func Handler(deps HandlerDeps) gin.HandlerFunc {
 			if origin == "" {
 				return true
 			}
-			for _, a := range deps.AllowedOrigins {
-				if a == origin {
-					return true
-				}
-			}
-			return false
+			return originAllowed(deps.AllowedOrigins, origin)
 		}
 
 		wsConn, err := upgrader.Upgrade(c.Writer, c.Request, nil)
