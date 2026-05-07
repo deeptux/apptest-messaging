@@ -13,6 +13,14 @@ import (
 	"github.com/apptest-messaging/backend/internal/services"
 )
 
+const (
+	writeWait = 10 * time.Second
+	pongWait  = 70 * time.Second
+	// pingPeriod must be less than pongWait.
+	pingPeriod     = 30 * time.Second
+	maxMessageSize = 1 << 20 // 1MB
+)
+
 type Conn struct {
 	ws   *websocket.Conn
 	send chan []byte
@@ -68,7 +76,7 @@ func Handler(deps HandlerDeps) gin.HandlerFunc {
 		conn := &Conn{ws: wsConn, send: make(chan []byte, 32)}
 		defer func() { _ = wsConn.Close() }()
 
-		wsConn.SetReadLimit(1 << 20) // 1MB
+		wsConn.SetReadLimit(maxMessageSize)
 
 		userID, firebaseUID, ok := authHandshake(c.Request, deps.Firebase, deps.Me, wsConn)
 		if !ok {
@@ -77,6 +85,12 @@ func Handler(deps HandlerDeps) gin.HandlerFunc {
 
 		deps.Hub.Register(userID, conn)
 		defer deps.Hub.Unregister(userID, conn)
+
+		_ = wsConn.SetReadDeadline(time.Now().Add(pongWait))
+		wsConn.SetPongHandler(func(string) error {
+			_ = wsConn.SetReadDeadline(time.Now().Add(pongWait))
+			return nil
+		})
 
 		_ = writeEnvelope(wsConn, EnvelopeV1{
 			V: ProtocolVersionV1,
@@ -91,15 +105,30 @@ func Handler(deps HandlerDeps) gin.HandlerFunc {
 		done := make(chan struct{})
 		go func() {
 			defer close(done)
-			for msg := range conn.send {
-				_ = wsConn.SetWriteDeadline(time.Now().Add(10 * time.Second))
-				if err := wsConn.WriteMessage(websocket.TextMessage, msg); err != nil {
-					return
+			pingTicker := time.NewTicker(pingPeriod)
+			defer pingTicker.Stop()
+
+			for {
+				select {
+				case msg, ok := <-conn.send:
+					if !ok {
+						return
+					}
+					_ = wsConn.SetWriteDeadline(time.Now().Add(writeWait))
+					if err := wsConn.WriteMessage(websocket.TextMessage, msg); err != nil {
+						return
+					}
+				case <-pingTicker.C:
+					_ = wsConn.SetWriteDeadline(time.Now().Add(writeWait))
+					if err := wsConn.WriteMessage(websocket.PingMessage, nil); err != nil {
+						return
+					}
 				}
 			}
 		}()
 
 		for {
+			_ = wsConn.SetReadDeadline(time.Now().Add(pongWait))
 			_, b, err := wsConn.ReadMessage()
 			if err != nil {
 				break
@@ -197,7 +226,7 @@ func writeEnvelope(wsConn *websocket.Conn, env EnvelopeV1) error {
 	if err != nil {
 		return err
 	}
-	_ = wsConn.SetWriteDeadline(time.Now().Add(10 * time.Second))
+	_ = wsConn.SetWriteDeadline(time.Now().Add(writeWait))
 	return wsConn.WriteMessage(websocket.TextMessage, b)
 }
 

@@ -63,8 +63,8 @@ Notes:
 
 - Client sends `ping` every **~25s** while connected.
 - Server responds with `pong`.
-- Server may close the connection if it receives **no frames** for a configured
-  idle window (to avoid zombie sockets).
+- Server may close the connection if it receives **no frames** for ~70s (to avoid
+  zombie sockets). The server also sends periodic WS-level ping frames.
 
 ### Reconnect + “missed messages” sync
 
