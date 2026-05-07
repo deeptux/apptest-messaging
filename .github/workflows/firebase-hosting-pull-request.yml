@@ -13,8 +13,10 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
+      - uses: subosito/flutter-action@v2
         with:
           channel: stable
+          cache: true
       - name: Flutter build web
         working-directory: frontend
         run: |
@@ -26,6 +28,5 @@ jobs:
         with:
           repoToken: ${{ secrets.GITHUB_TOKEN }}
           firebaseServiceAccount: ${{ secrets.FIREBASE_SERVICE_ACCOUNT_APPTEST_MESSAGING_DEV }}
-          channelId: live
           projectId: apptest-messaging-dev
           entryPoint: frontend
