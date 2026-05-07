@@ -7,11 +7,13 @@ import (
 	"net/http"
 	"os"
 	"os/signal"
+	"regexp"
 	"syscall"
 	"time"
 
 	firebase "firebase.google.com/go/v4"
 	"github.com/gin-gonic/gin"
+	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
 	"google.golang.org/api/option"
 
@@ -22,6 +24,8 @@ import (
 	"github.com/apptest-messaging/backend/internal/repositories"
 	"github.com/apptest-messaging/backend/internal/services"
 )
+
+var validDatabaseSchema = regexp.MustCompile(`^[a-zA-Z_][a-zA-Z0-9_]*$`)
 
 func main() {
 	if err := run(); err != nil {
@@ -37,7 +41,7 @@ func run() error {
 
 	ctx := context.Background()
 
-	pool, err := pgxpool.New(ctx, cfg.DatabaseURL)
+	pool, err := newPGPool(ctx, cfg.DatabaseURL, cfg.DatabaseSchema)
 	if err != nil {
 		return fmt.Errorf("postgres: %w", err)
 	}
@@ -101,4 +105,22 @@ func run() error {
 	shutdownCtx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
 	defer cancel()
 	return srv.Shutdown(shutdownCtx)
+}
+
+func newPGPool(ctx context.Context, databaseURL, schema string) (*pgxpool.Pool, error) {
+	pc, err := pgxpool.ParseConfig(databaseURL)
+	if err != nil {
+		return nil, fmt.Errorf("parse config: %w", err)
+	}
+	if schema != "" {
+		if !validDatabaseSchema.MatchString(schema) {
+			return nil, fmt.Errorf("DATABASE_SCHEMA must match ^[a-zA-Z_][a-zA-Z0-9_]*$")
+		}
+		pc.AfterConnect = func(ctx context.Context, conn *pgx.Conn) error {
+			q := "SET search_path TO " + pgx.Identifier{schema}.Sanitize()
+			_, err := conn.Exec(ctx, q)
+			return err
+		}
+	}
+	return pgxpool.NewWithConfig(ctx, pc)
 }

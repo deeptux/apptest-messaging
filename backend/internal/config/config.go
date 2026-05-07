@@ -11,6 +11,7 @@ import (
 type Config struct {
 	Port                             string
 	DatabaseURL                      string
+	DatabaseSchema                   string
 	RedisURL                         string
 	CORSAllowedOrigins               []string
 	GoogleApplicationCredentialsPath string
@@ -50,9 +51,12 @@ func Load() (*Config, error) {
 		return nil, fmt.Errorf("GOOGLE_APPLICATION_CREDENTIALS is required (path to Firebase service account JSON)")
 	}
 
+	dbSchema := strings.TrimSpace(os.Getenv("DATABASE_SCHEMA"))
+
 	return &Config{
 		Port:                             port,
 		DatabaseURL:                      dbURL,
+		DatabaseSchema:                   dbSchema,
 		RedisURL:                         redisURL,
 		CORSAllowedOrigins:               corsOrigins,
 		GoogleApplicationCredentialsPath: credsPath,
