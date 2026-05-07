@@ -11,7 +11,9 @@ FROM alpine:3.20
 RUN apk add --no-cache ca-certificates tzdata
 WORKDIR /app
 COPY --from=build /out/server /app/server
+COPY entrypoint.sh /app/entrypoint.sh
+RUN chmod +x /app/entrypoint.sh
 ENV PORT=8080
 EXPOSE 8080
 USER nobody
-ENTRYPOINT ["/app/server"]
+ENTRYPOINT ["/app/entrypoint.sh"]
