@@ -238,6 +238,64 @@ func Handler(deps HandlerDeps) gin.HandlerFunc {
 				for _, uid := range memberIDs {
 					deps.Hub.SendToUser(uid.String(), newBytes)
 				}
+			case EventMsgDelivered:
+				var data struct {
+					ConversationID string `json:"conversationId"`
+					Seq            int64  `json:"seq"`
+				}
+				if err := json.Unmarshal(env.Data, &data); err != nil {
+					_ = sendErr(wsConn, ErrBadRequest, "invalid data")
+					continue
+				}
+				convID, err := uuid.Parse(strings.TrimSpace(data.ConversationID))
+				if err != nil || data.Seq <= 0 {
+					_ = sendErr(wsConn, ErrBadRequest, "invalid delivered ack")
+					continue
+				}
+				isMember, err := deps.Convs.IsMember(c.Request.Context(), convID, selfID)
+				if err != nil || !isMember {
+					_ = sendErr(wsConn, ErrUnauthorized, "not a member")
+					continue
+				}
+				senderID, deliveredAt, _, err := deps.Msgs.MarkDelivered(c.Request.Context(), convID, data.Seq)
+				if err != nil {
+					_ = sendErr(wsConn, ErrInternal, "delivered update failed")
+					continue
+				}
+				if senderID == selfID {
+					continue
+				}
+				ev := EnvelopeV1{
+					V: ProtocolVersionV1,
+					T: EventMsgDelivered,
+					Data: mustMarshal(map[string]any{
+						"conversationId": convID.String(),
+						"seq":            data.Seq,
+						"deliveredAt":    deliveredAt.UTC().Format(time.RFC3339Nano),
+					}),
+				}
+				b2, _ := json.Marshal(ev)
+				deps.Hub.SendToUser(senderID.String(), b2)
+			case EventReadMark:
+				var data struct {
+					ConversationID string `json:"conversationId"`
+					LastReadSeq    int64  `json:"lastReadSeq"`
+				}
+				if err := json.Unmarshal(env.Data, &data); err != nil {
+					_ = sendErr(wsConn, ErrBadRequest, "invalid data")
+					continue
+				}
+				convID, err := uuid.Parse(strings.TrimSpace(data.ConversationID))
+				if err != nil || data.LastReadSeq < 0 {
+					_ = sendErr(wsConn, ErrBadRequest, "invalid read mark")
+					continue
+				}
+				isMember, err := deps.Convs.IsMember(c.Request.Context(), convID, selfID)
+				if err != nil || !isMember {
+					_ = sendErr(wsConn, ErrUnauthorized, "not a member")
+					continue
+				}
+				_, _ = deps.Convs.MarkRead(c.Request.Context(), convID, selfID, data.LastReadSeq)
 			default:
 				_ = sendErr(wsConn, ErrBadRequest, "unknown event")
 			}

@@ -10,11 +10,16 @@ class WsClient {
   WebSocketChannel? _channel;
   StreamSubscription? _sub;
   Timer? _pingTimer;
+  Timer? _reconnectTimer;
+  String? _idToken;
+  bool _closedByUser = false;
 
   final _events = StreamController<Map<String, dynamic>>.broadcast();
   Stream<Map<String, dynamic>> get events => _events.stream;
 
   Future<void> connect({required String idToken}) async {
+    _closedByUser = false;
+    _idToken = idToken;
     await close();
 
     final base = requireApiBaseUrl();
@@ -29,8 +34,10 @@ class WsClient {
       } catch (_) {}
     }, onDone: () {
       _pingTimer?.cancel();
+      _scheduleReconnect();
     }, onError: (_) {
       _pingTimer?.cancel();
+      _scheduleReconnect();
     });
 
     _send({
@@ -48,6 +55,41 @@ class WsClient {
     });
   }
 
+  void sendMessage({
+    required String id,
+    required String conversationId,
+    required String body,
+  }) {
+    _send({
+      'v': 1,
+      't': 'msg.send',
+      'id': id,
+      'data': {'conversationId': conversationId, 'body': body},
+    });
+  }
+
+  void sendDelivered({
+    required String conversationId,
+    required int seq,
+  }) {
+    _send({
+      'v': 1,
+      't': 'msg.delivered',
+      'data': {'conversationId': conversationId, 'seq': seq},
+    });
+  }
+
+  void sendReadMark({
+    required String conversationId,
+    required int lastReadSeq,
+  }) {
+    _send({
+      'v': 1,
+      't': 'read.mark',
+      'data': {'conversationId': conversationId, 'lastReadSeq': lastReadSeq},
+    });
+  }
+
   void _send(Map<String, dynamic> env) {
     final ch = _channel;
     if (ch == null) return;
@@ -55,12 +97,29 @@ class WsClient {
   }
 
   Future<void> close() async {
+    _closedByUser = true;
+    _reconnectTimer?.cancel();
+    _reconnectTimer = null;
     _pingTimer?.cancel();
     _pingTimer = null;
     await _sub?.cancel();
     _sub = null;
     await _channel?.sink.close();
     _channel = null;
+  }
+
+  void _scheduleReconnect() {
+    if (_closedByUser) return;
+    if (_reconnectTimer != null) return;
+    final token = _idToken;
+    if (token == null || token.isEmpty) return;
+    _reconnectTimer = Timer(const Duration(seconds: 2), () async {
+      _reconnectTimer = null;
+      if (_closedByUser) return;
+      try {
+        await connect(idToken: token);
+      } catch (_) {}
+    });
   }
 }
 

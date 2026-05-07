@@ -1,10 +1,12 @@
 import 'package:apptest_messaging/core/providers.dart';
-import 'package:apptest_messaging/features/inbox/inbox_screen.dart';
+import 'package:apptest_messaging/features/chat/chat_screen.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 class NewChatScreen extends ConsumerStatefulWidget {
-  const NewChatScreen({super.key});
+  const NewChatScreen({super.key, required this.selfUserId});
+
+  final String selfUserId;
 
   @override
   ConsumerState<NewChatScreen> createState() => _NewChatScreenState();
@@ -95,7 +97,11 @@ class _NewChatScreenState extends ConsumerState<NewChatScreen> {
                         if (!context.mounted) return;
                         Navigator.of(context).pushReplacement(
                           MaterialPageRoute(
-                            builder: (_) => ChatShellScreen(conversationId: convId, title: name ?? email ?? 'Chat'),
+                            builder: (_) => ChatScreen(
+                              conversationId: convId,
+                              title: name ?? email ?? 'Chat',
+                              selfUserId: widget.selfUserId,
+                            ),
                           ),
                         );
                       },

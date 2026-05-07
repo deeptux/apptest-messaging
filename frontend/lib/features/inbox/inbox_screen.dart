@@ -1,6 +1,7 @@
 import 'package:apptest_messaging/core/providers.dart';
 import 'package:apptest_messaging/core/database/app_database.dart';
 import 'package:apptest_messaging/features/auth/session_notifier.dart';
+import 'package:apptest_messaging/features/chat/chat_screen.dart';
 import 'package:apptest_messaging/features/inbox/new_chat_screen.dart';
 import 'package:apptest_messaging/core/models/me_response.dart';
 import 'package:drift/drift.dart';
@@ -35,7 +36,7 @@ class _InboxScreenState extends ConsumerState<InboxScreen> {
           IconButton(
             tooltip: 'New chat',
             onPressed: () => Navigator.of(context).push(
-              MaterialPageRoute(builder: (_) => const NewChatScreen()),
+              MaterialPageRoute(builder: (_) => NewChatScreen(selfUserId: widget.me.userId)),
             ),
             icon: const Icon(Icons.add),
           ),
@@ -88,10 +89,13 @@ class _InboxScreenState extends ConsumerState<InboxScreen> {
                   ),
                   trailing: _UnreadBadge(conversationId: c0.conversationId, selfUserId: widget.me.userId, lastSeq: c0.lastSeq),
                   onTap: () async {
-                    // Chat screen will be wired in ATM-50/52.
                     await Navigator.of(context).push(
                       MaterialPageRoute(
-                        builder: (_) => ChatShellScreen(conversationId: c0.conversationId, title: c0.otherDisplayName ?? c0.otherEmail ?? 'Chat'),
+                        builder: (_) => ChatScreen(
+                          conversationId: c0.conversationId,
+                          title: c0.otherDisplayName ?? c0.otherEmail ?? 'Chat',
+                          selfUserId: widget.me.userId,
+                        ),
                       ),
                     );
                   },
@@ -136,26 +140,6 @@ class _UnreadBadge extends ConsumerWidget {
           ),
         );
       },
-    );
-  }
-}
-
-class ChatShellScreen extends StatelessWidget {
-  const ChatShellScreen({super.key, required this.conversationId, required this.title});
-
-  final String conversationId;
-  final String title;
-
-  @override
-  Widget build(BuildContext context) {
-    return Scaffold(
-      appBar: AppBar(title: Text(title)),
-      body: Center(
-        child: Padding(
-          padding: const EdgeInsets.all(24),
-          child: Text('Chat UI will be wired next.\\nConversation: $conversationId'),
-        ),
-      ),
     );
   }
 }

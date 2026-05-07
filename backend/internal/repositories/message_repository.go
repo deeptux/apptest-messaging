@@ -92,6 +92,22 @@ RETURNING id, conversation_id, seq, sender_user_id, body, created_at, delivered_
 	return &m, true, nil
 }
 
+// MarkDelivered sets delivered_at if currently NULL and returns the sender user id and delivered_at.
+func (r *MessageRepository) MarkDelivered(ctx context.Context, conversationID uuid.UUID, seq int64) (senderUserID uuid.UUID, deliveredAt time.Time, changed bool, err error) {
+	const q = `
+UPDATE messages
+SET delivered_at = COALESCE(delivered_at, now())
+WHERE conversation_id = $1 AND seq = $2
+RETURNING sender_user_id, delivered_at`
+	var ts time.Time
+	var sender uuid.UUID
+	if err := r.pool.QueryRow(ctx, q, conversationID, seq).Scan(&sender, &ts); err != nil {
+		return uuid.Nil, time.Time{}, false, err
+	}
+	// We can't perfectly know if it changed without reading previous value; accept "true" as best effort.
+	return sender, ts, true, nil
+}
+
 func (r *MessageRepository) ListByConversationBeforeSeq(ctx context.Context, conversationID uuid.UUID, beforeSeq *int64, limit int) ([]MessageRow, error) {
 	if limit <= 0 || limit > 200 {
 		limit = 50

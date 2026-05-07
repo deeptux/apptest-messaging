@@ -8,7 +8,7 @@ import 'package:apptest_messaging/core/providers.dart'
         dioProvider,
         idTokenProvider,
         localUserProvider;
-import 'package:apptest_messaging/features/chat/data/ws_client.dart';
+import 'package:apptest_messaging/core/providers.dart' show wsClientProvider;
 import 'package:dio/dio.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter/foundation.dart' show kIsWeb;
@@ -39,7 +39,6 @@ class SessionNotifier extends AsyncNotifier<MeResponse?> {
     return null;
   }
 
-  WsClient? _ws;
   StreamSubscription? _wsSub;
 
   Future<void> signInWithGoogle() async {
@@ -85,8 +84,7 @@ class SessionNotifier extends AsyncNotifier<MeResponse?> {
 
       await ref.read(chatRepositoryProvider).syncInbox(selfUserId: me.userId);
 
-      final ws = WsClient();
-      _ws = ws;
+      final ws = ref.read(wsClientProvider);
       await ws.connect(idToken: token);
       await _wsSub?.cancel();
       _wsSub = ws.events.listen((env) async {
@@ -122,6 +120,21 @@ class SessionNotifier extends AsyncNotifier<MeResponse?> {
             lastSeq: seq,
             lastMessageAt: createdAt,
           );
+
+          if (senderUserId != me.userId) {
+            ws.sendDelivered(conversationId: conversationId, seq: seq);
+          }
+        } else if (t == 'msg.delivered' && data != null) {
+          final conversationId = data['conversationId'] as String?;
+          final seq = (data['seq'] as num?)?.toInt();
+          final deliveredAt =
+              DateTime.tryParse((data['deliveredAt'] as String?) ?? '')?.toUtc();
+          if (conversationId == null || seq == null || deliveredAt == null) return;
+          await ref.read(appDatabaseProvider).updateMessageDeliveredAt(
+                conversationId: conversationId,
+                seq: seq,
+                deliveredAt: deliveredAt,
+              );
         }
       });
 
@@ -134,8 +147,7 @@ class SessionNotifier extends AsyncNotifier<MeResponse?> {
     await _googleSignIn.signOut();
     await _wsSub?.cancel();
     _wsSub = null;
-    await _ws?.close();
-    _ws = null;
+    await ref.read(wsClientProvider).close();
     ref.read(idTokenProvider.notifier).state = null;
     ref.invalidate(localUserProvider);
     state = const AsyncData(null);
