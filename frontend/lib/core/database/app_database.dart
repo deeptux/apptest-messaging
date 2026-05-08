@@ -103,7 +103,9 @@ class AppDatabase extends _$AppDatabase {
           if (from >= 3 && from < 4) {
             await m.addColumn(messages, messages.replyToSeq);
           }
-          if (from >= 4 && from < 5) {
+          // Ensure outbox table exists regardless of upgrade starting point.
+          // If upgrading from <2 directly to v5, the guard (from>=4) would skip it.
+          if (from < 5) {
             await m.createTable(outboxMessages);
           }
         },
