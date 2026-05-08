@@ -23,6 +23,7 @@ import (
 	appredis "github.com/apptest-messaging/backend/internal/redis"
 	"github.com/apptest-messaging/backend/internal/repositories"
 	"github.com/apptest-messaging/backend/internal/services"
+	appws "github.com/apptest-messaging/backend/internal/ws"
 )
 
 var validDatabaseSchema = regexp.MustCompile(`^[a-zA-Z_][a-zA-Z0-9_]*$`)
@@ -64,6 +65,9 @@ func run() error {
 
 	userRepo := repositories.NewUserRepository(pool)
 	meSvc := services.NewMeService(userRepo, rdb)
+	convRepo := repositories.NewConversationRepository(pool)
+	msgRepo := repositories.NewMessageRepository(pool)
+	chatSvc := services.NewChatService(userRepo, convRepo, msgRepo)
 
 	gin.SetMode(gin.ReleaseMode)
 	if os.Getenv("GIN_MODE") == "debug" {
@@ -77,9 +81,28 @@ func run() error {
 	r.GET("/healthz", handlers.Health)
 	r.GET("/readyz", handlers.Ready(handlers.ReadyDeps{Pool: pool, Redis: rdb}))
 
+	wsHub := appws.NewHub()
+	r.GET("/ws", appws.Handler(appws.HandlerDeps{
+		Firebase:       authClient,
+		Me:             meSvc,
+		Hub:            wsHub,
+		Convs:          convRepo,
+		Msgs:           msgRepo,
+		AllowedOrigins: cfg.CORSAllowedOrigins,
+	}))
+
+	v1Pub := r.Group("/api/v1")
+	v1Pub.POST("/auth/anonymous", handlers.AnonymousDemoSignIn(userRepo, authClient))
+
 	api := r.Group("/api/v1")
 	api.Use(middleware.FirebaseAuth(authClient))
 	api.GET("/me", handlers.Me(meSvc))
+	api.GET("/users/search", handlers.UsersSearch(chatSvc, meSvc))
+	api.POST("/conversations/direct", handlers.ConversationsDirect(chatSvc, meSvc))
+	api.GET("/inbox", handlers.Inbox(chatSvc, meSvc))
+	api.GET("/conversations/:conversationId/messages", handlers.ConversationMessages(chatSvc, meSvc))
+	api.POST("/conversations/:conversationId/read", handlers.ConversationRead(chatSvc, meSvc))
+	api.POST("/conversations/:conversationId/hide", handlers.ConversationHide(chatSvc, meSvc))
 
 	addr := ":" + cfg.Port
 	srv := &http.Server{

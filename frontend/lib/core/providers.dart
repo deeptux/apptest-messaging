@@ -1,5 +1,8 @@
 import 'package:apptest_messaging/core/config.dart';
 import 'package:apptest_messaging/core/database/app_database.dart';
+import 'package:apptest_messaging/features/chat/data/chat_api.dart';
+import 'package:apptest_messaging/features/chat/data/chat_repository.dart';
+import 'package:apptest_messaging/features/chat/data/ws_client.dart';
 import 'package:dio/dio.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
@@ -39,4 +42,21 @@ final dioProvider = Provider<Dio>((ref) {
 final localUserProvider = FutureProvider<LocalUser?>((ref) async {
   final db = ref.watch(appDatabaseProvider);
   return db.getMe();
+});
+
+final chatApiProvider = Provider<ChatApi>((ref) {
+  return ChatApi(ref.watch(dioProvider));
+});
+
+final chatRepositoryProvider = Provider<ChatRepository>((ref) {
+  return ChatRepository(
+    api: ref.watch(chatApiProvider),
+    db: ref.watch(appDatabaseProvider),
+  );
+});
+
+final wsClientProvider = Provider<WsClient>((ref) {
+  final c = WsClient();
+  ref.onDispose(c.close);
+  return c;
 });

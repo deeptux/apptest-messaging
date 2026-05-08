@@ -4,6 +4,7 @@ class MeResponse {
   final String? email;
   final String? displayName;
   final String? photoUrl;
+  final String? anonymousUsername;
 
   MeResponse({
     required this.userId,
@@ -11,6 +12,7 @@ class MeResponse {
     this.email,
     this.displayName,
     this.photoUrl,
+    this.anonymousUsername,
   });
 
   factory MeResponse.fromJson(Map<String, dynamic> j) {
@@ -20,6 +22,7 @@ class MeResponse {
       email: j['email'] as String?,
       displayName: j['displayName'] as String?,
       photoUrl: j['photoUrl'] as String?,
+      anonymousUsername: j['anonymousUsername'] as String?,
     );
   }
 }

@@ -4,8 +4,10 @@ go 1.23
 
 require (
 	firebase.google.com/go/v4 v4.15.0
+	github.com/alicebob/miniredis/v2 v2.37.0
 	github.com/gin-gonic/gin v1.10.0
 	github.com/google/uuid v1.6.0
+	github.com/gorilla/websocket v1.5.3
 	github.com/jackc/pgx/v5 v5.7.1
 	github.com/redis/go-redis/v9 v9.7.0
 	google.golang.org/api v0.209.0
@@ -21,7 +23,6 @@ require (
 	cloud.google.com/go/longrunning v0.6.2 // indirect
 	cloud.google.com/go/storage v1.43.0 // indirect
 	github.com/MicahParks/keyfunc v1.9.0 // indirect
-	github.com/alicebob/miniredis/v2 v2.37.0 // indirect
 	github.com/bytedance/sonic v1.11.6 // indirect
 	github.com/bytedance/sonic/loader v0.1.1 // indirect
 	github.com/cespare/xxhash/v2 v2.3.0 // indirect
