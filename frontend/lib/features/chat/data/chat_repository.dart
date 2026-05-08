@@ -44,6 +44,7 @@ class ChatRepository {
         createdAt: _parseDateTime(m['createdAt']) ?? DateTime.now().toUtc(),
         deliveredAt: _parseDateTime(m['deliveredAt']),
         deletedAt: _parseDateTime(m['deletedAt']),
+        replyToSeq: (m['replyToSeq'] as num?)?.toInt(),
       );
     }
   }
@@ -68,6 +69,7 @@ class ChatRepository {
         createdAt: _parseDateTime(m['createdAt']) ?? DateTime.now().toUtc(),
         deliveredAt: _parseDateTime(m['deliveredAt']),
         deletedAt: _parseDateTime(m['deletedAt']),
+        replyToSeq: (m['replyToSeq'] as num?)?.toInt(),
       );
     }
   }

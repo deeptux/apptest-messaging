@@ -11,6 +11,7 @@ import 'package:apptest_messaging/core/providers.dart'
         idTokenProvider,
         localUserProvider;
 import 'package:apptest_messaging/core/providers.dart' show wsClientProvider;
+import 'package:apptest_messaging/core/providers.dart' show outboxServiceProvider;
 import 'package:dio/dio.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter/foundation.dart' show kIsWeb;
@@ -104,6 +105,8 @@ class SessionNotifier extends AsyncNotifier<MeResponse?> {
 
       // Don't block app startup on WS connect; failures should not blank the UI.
       final ws = ref.read(wsClientProvider);
+      // Ensure queued messages flush after reconnect.
+      ref.read(outboxServiceProvider).start();
       // ignore: unawaited_futures
       ws.connect(idToken: token);
 
@@ -111,7 +114,11 @@ class SessionNotifier extends AsyncNotifier<MeResponse?> {
       _wsSub = ws.events.listen((env) async {
         final t = env['t'] as String?;
         final data = (env['data'] as Map?)?.cast<String, dynamic>();
-        if (t == 'msg.new' && data != null) {
+        if (t == 'msg.ack' && data != null) {
+          final clientId = (env['id'] as String?)?.trim();
+          if (clientId == null || clientId.isEmpty) return;
+          await ref.read(outboxServiceProvider).markAcked(clientId);
+        } else if (t == 'msg.new' && data != null) {
           final conversationId = data['conversationId'] as String?;
           final messageId = data['messageId'] as String?;
           final seq = (data['seq'] as num?)?.toInt();
@@ -119,6 +126,7 @@ class SessionNotifier extends AsyncNotifier<MeResponse?> {
           final body = data['body'] as String?;
           final createdAt =
               DateTime.tryParse((data['createdAt'] as String?) ?? '')?.toUtc();
+          final replyToSeq = (data['replyToSeq'] as num?)?.toInt();
           if (conversationId == null ||
               messageId == null ||
               seq == null ||
@@ -139,6 +147,7 @@ class SessionNotifier extends AsyncNotifier<MeResponse?> {
                 ?.toUtc(),
             deletedAt: DateTime.tryParse((data['deletedAt'] as String?) ?? '')
                 ?.toUtc(),
+            replyToSeq: replyToSeq,
           );
           await db.updateConversationLast(
             conversationId: conversationId,
@@ -278,18 +287,25 @@ class SessionNotifier extends AsyncNotifier<MeResponse?> {
       await ref.read(chatRepositoryProvider).syncInbox(selfUserId: me.userId);
 
       final ws = ref.read(wsClientProvider);
+      // Ensure queued messages flush after reconnect.
+      ref.read(outboxServiceProvider).start();
       await ws.connect(idToken: token);
       await _wsSub?.cancel();
       _wsSub = ws.events.listen((env) async {
         final t = env['t'] as String?;
         final data = (env['data'] as Map?)?.cast<String, dynamic>();
-        if (t == 'msg.new' && data != null) {
+        if (t == 'msg.ack' && data != null) {
+          final clientId = (env['id'] as String?)?.trim();
+          if (clientId == null || clientId.isEmpty) return;
+          await ref.read(outboxServiceProvider).markAcked(clientId);
+        } else if (t == 'msg.new' && data != null) {
           final conversationId = data['conversationId'] as String?;
           final messageId = data['messageId'] as String?;
           final seq = (data['seq'] as num?)?.toInt();
           final senderUserId = data['senderUserId'] as String?;
           final body = data['body'] as String?;
           final createdAt = DateTime.tryParse((data['createdAt'] as String?) ?? '')?.toUtc();
+          final replyToSeq = (data['replyToSeq'] as num?)?.toInt();
           if (conversationId == null ||
               messageId == null ||
               seq == null ||
@@ -308,6 +324,7 @@ class SessionNotifier extends AsyncNotifier<MeResponse?> {
             createdAt: createdAt,
             deliveredAt: DateTime.tryParse((data['deliveredAt'] as String?) ?? '')?.toUtc(),
             deletedAt: DateTime.tryParse((data['deletedAt'] as String?) ?? '')?.toUtc(),
+            replyToSeq: replyToSeq,
           );
           await db.updateConversationLast(
             conversationId: conversationId,
@@ -406,18 +423,25 @@ class SessionNotifier extends AsyncNotifier<MeResponse?> {
       await ref.read(chatRepositoryProvider).syncInbox(selfUserId: me.userId);
 
       final ws = ref.read(wsClientProvider);
+      // Ensure queued messages flush after reconnect.
+      ref.read(outboxServiceProvider).start();
       await ws.connect(idToken: token);
       await _wsSub?.cancel();
       _wsSub = ws.events.listen((env) async {
         final t = env['t'] as String?;
         final data = (env['data'] as Map?)?.cast<String, dynamic>();
-        if (t == 'msg.new' && data != null) {
+        if (t == 'msg.ack' && data != null) {
+          final clientId = (env['id'] as String?)?.trim();
+          if (clientId == null || clientId.isEmpty) return;
+          await ref.read(outboxServiceProvider).markAcked(clientId);
+        } else if (t == 'msg.new' && data != null) {
           final conversationId = data['conversationId'] as String?;
           final messageId = data['messageId'] as String?;
           final seq = (data['seq'] as num?)?.toInt();
           final senderUserId = data['senderUserId'] as String?;
           final body = data['body'] as String?;
           final createdAt = DateTime.tryParse((data['createdAt'] as String?) ?? '')?.toUtc();
+          final replyToSeq = (data['replyToSeq'] as num?)?.toInt();
           if (conversationId == null ||
               messageId == null ||
               seq == null ||
@@ -436,6 +460,7 @@ class SessionNotifier extends AsyncNotifier<MeResponse?> {
             createdAt: createdAt,
             deliveredAt: DateTime.tryParse((data['deliveredAt'] as String?) ?? '')?.toUtc(),
             deletedAt: DateTime.tryParse((data['deletedAt'] as String?) ?? '')?.toUtc(),
+            replyToSeq: replyToSeq,
           );
           await db.updateConversationLast(
             conversationId: conversationId,

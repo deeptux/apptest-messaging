@@ -69,6 +69,9 @@ class _InactivityLogoutState extends ConsumerState<InactivityLogout> {
       );
       if (ok == true) {
         await ref.read(sessionProvider.notifier).signOut();
+        if (ctx.mounted) {
+          Navigator.of(ctx).popUntil((r) => r.isFirst);
+        }
       }
     } finally {
       _dialogOpen = false;

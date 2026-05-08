@@ -52,17 +52,35 @@ class Messages extends Table {
   DateTimeColumn get createdAt => dateTime()();
   DateTimeColumn get deliveredAt => dateTime().nullable()();
   DateTimeColumn get deletedAt => dateTime().nullable()();
+  IntColumn get replyToSeq => integer().nullable()();
 
   @override
   Set<Column> get primaryKey => {messageId};
 }
 
-@DriftDatabase(tables: [LocalUsers, Conversations, ConversationMembers, Messages])
+class OutboxMessages extends Table {
+  TextColumn get clientId => text()(); // uuid generated client-side; equals WS envelope id
+  TextColumn get conversationId => text()();
+  TextColumn get body => text()();
+  DateTimeColumn get createdAt => dateTime()();
+  IntColumn get replyToSeq => integer().nullable()();
+
+  /// queued | sending | failed
+  TextColumn get status => text()();
+  IntColumn get attempts => integer().withDefault(const Constant(0))();
+  TextColumn get lastError => text().nullable()();
+  DateTimeColumn get updatedAt => dateTime()();
+
+  @override
+  Set<Column> get primaryKey => {clientId};
+}
+
+@DriftDatabase(tables: [LocalUsers, Conversations, ConversationMembers, Messages, OutboxMessages])
 class AppDatabase extends _$AppDatabase {
   AppDatabase() : super(openAppDatabaseConnection());
 
   @override
-  int get schemaVersion => 3;
+  int get schemaVersion => 5;
 
   @override
   MigrationStrategy get migration => MigrationStrategy(
@@ -81,6 +99,12 @@ class AppDatabase extends _$AppDatabase {
           // "duplicate column name: deleted_at" (seen on persistent browser storage).
           if (from >= 2 && from < 3) {
             await m.addColumn(messages, messages.deletedAt);
+          }
+          if (from >= 3 && from < 4) {
+            await m.addColumn(messages, messages.replyToSeq);
+          }
+          if (from >= 4 && from < 5) {
+            await m.createTable(outboxMessages);
           }
         },
       );
@@ -181,6 +205,7 @@ class AppDatabase extends _$AppDatabase {
     required DateTime createdAt,
     DateTime? deliveredAt,
     DateTime? deletedAt,
+    int? replyToSeq,
   }) async {
     await into(messages).insertOnConflictUpdate(
       MessagesCompanion(
@@ -192,6 +217,7 @@ class AppDatabase extends _$AppDatabase {
         createdAt: Value(createdAt),
         deliveredAt: Value(deliveredAt),
         deletedAt: Value(deletedAt),
+        replyToSeq: Value(replyToSeq),
       ),
     );
   }
@@ -306,5 +332,81 @@ class AppDatabase extends _$AppDatabase {
           ..where((m) => m.conversationId.equals(conversationId) & m.userId.equals(userId)))
         .getSingleOrNull();
     return row?.lastReadSeq ?? 0;
+  }
+
+  Stream<List<OutboxMessage>> watchOutboxForConversation(String conversationId) {
+    return (select(outboxMessages)
+          ..where((o) => o.conversationId.equals(conversationId))
+          ..orderBy([
+            (o) => OrderingTerm(expression: o.createdAt, mode: OrderingMode.desc),
+          ]))
+        .watch();
+  }
+
+  Future<void> upsertOutbox({
+    required String clientId,
+    required String conversationId,
+    required String body,
+    required DateTime createdAt,
+    int? replyToSeq,
+    required String status,
+    int attempts = 0,
+    String? lastError,
+  }) async {
+    await into(outboxMessages).insertOnConflictUpdate(
+      OutboxMessagesCompanion(
+        clientId: Value(clientId),
+        conversationId: Value(conversationId),
+        body: Value(body),
+        createdAt: Value(createdAt),
+        replyToSeq: Value(replyToSeq),
+        status: Value(status),
+        attempts: Value(attempts),
+        lastError: Value(lastError),
+        updatedAt: Value(DateTime.now().toUtc()),
+      ),
+    );
+  }
+
+  Future<void> updateOutboxStatus({
+    required String clientId,
+    required String status,
+    String? lastError,
+    int? attempts,
+  }) async {
+    await (update(outboxMessages)..where((o) => o.clientId.equals(clientId))).write(
+      OutboxMessagesCompanion(
+        status: Value(status),
+        lastError: Value(lastError),
+        attempts: attempts == null ? const Value.absent() : Value(attempts),
+        updatedAt: Value(DateTime.now().toUtc()),
+      ),
+    );
+  }
+
+  Future<void> deleteOutbox(String clientId) async {
+    await (delete(outboxMessages)..where((o) => o.clientId.equals(clientId))).go();
+  }
+
+  Future<List<OutboxMessage>> listOutboxSendable({int limit = 100}) {
+    return (select(outboxMessages)
+          ..where((o) =>
+              o.status.equals('queued') |
+              o.status.equals('failed') |
+              o.status.equals('sending'))
+          ..orderBy([
+            (o) => OrderingTerm(expression: o.updatedAt, mode: OrderingMode.asc),
+          ])
+          ..limit(limit))
+        .get();
+  }
+
+  Future<void> resetOutboxStuckSendingToQueued() async {
+    await (update(outboxMessages)..where((o) => o.status.equals('sending'))).write(
+      OutboxMessagesCompanion(
+        status: const Value('queued'),
+        updatedAt: Value(DateTime.now().toUtc()),
+      ),
+    );
   }
 }

@@ -2,6 +2,7 @@ package repositories
 
 import (
 	"context"
+	"database/sql"
 	"errors"
 	"time"
 
@@ -9,6 +10,9 @@ import (
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
 )
+
+// ErrReplyTargetMissing is returned when replyToSeq does not reference a row in the conversation.
+var ErrReplyTargetMissing = errors.New("reply message not found in conversation")
 
 type MessageRow struct {
 	ID             uuid.UUID
@@ -19,6 +23,7 @@ type MessageRow struct {
 	CreatedAt      time.Time
 	DeliveredAt    *time.Time
 	DeletedAt      *time.Time
+	ReplyToSeq     *int64
 }
 
 type MessageRepository struct {
@@ -37,6 +42,7 @@ func (r *MessageRepository) CreateInConversation(
 	senderUserID uuid.UUID,
 	idempotencyKey string,
 	body string,
+	replyToSeq *int64,
 ) (*MessageRow, bool, error) {
 	tx, err := r.pool.Begin(ctx)
 	if err != nil {
@@ -45,17 +51,22 @@ func (r *MessageRepository) CreateInConversation(
 	defer func() { _ = tx.Rollback(ctx) }()
 
 	const selExisting = `
-SELECT id, conversation_id, seq, sender_user_id, body, created_at, delivered_at, deleted_at
+SELECT id, conversation_id, seq, sender_user_id, body, created_at, delivered_at, deleted_at, reply_to_seq
 FROM messages
 WHERE conversation_id = $1 AND idempotency_key = $2`
 	var existing MessageRow
 	var deliveredAt *time.Time
 	var deletedAt *time.Time
+	var replyNull sql.NullInt64
 	err = tx.QueryRow(ctx, selExisting, conversationID, idempotencyKey).
-		Scan(&existing.ID, &existing.ConversationID, &existing.Seq, &existing.SenderUserID, &existing.Body, &existing.CreatedAt, &deliveredAt, &deletedAt)
+		Scan(&existing.ID, &existing.ConversationID, &existing.Seq, &existing.SenderUserID, &existing.Body, &existing.CreatedAt, &deliveredAt, &deletedAt, &replyNull)
 	if err == nil {
 		existing.DeliveredAt = deliveredAt
 		existing.DeletedAt = deletedAt
+		if replyNull.Valid {
+			v := replyNull.Int64
+			existing.ReplyToSeq = &v
+		}
 		if err := tx.Commit(ctx); err != nil {
 			return nil, false, err
 		}
@@ -63,6 +74,22 @@ WHERE conversation_id = $1 AND idempotency_key = $2`
 	}
 	if !errors.Is(err, pgx.ErrNoRows) {
 		return nil, false, err
+	}
+
+	if replyToSeq != nil {
+		if *replyToSeq <= 0 {
+			return nil, false, ErrReplyTargetMissing
+		}
+		var ok bool
+		err = tx.QueryRow(ctx,
+			`SELECT true FROM messages WHERE conversation_id = $1 AND seq = $2`,
+			conversationID, *replyToSeq).Scan(&ok)
+		if err != nil {
+			if errors.Is(err, pgx.ErrNoRows) {
+				return nil, false, ErrReplyTargetMissing
+			}
+			return nil, false, err
+		}
 	}
 
 	const bumpSeq = `
@@ -78,18 +105,23 @@ RETURNING last_seq`
 	}
 
 	const ins = `
-INSERT INTO messages (conversation_id, seq, sender_user_id, body, idempotency_key)
-VALUES ($1, $2, $3, $4, $5)
-RETURNING id, conversation_id, seq, sender_user_id, body, created_at, delivered_at, deleted_at`
+INSERT INTO messages (conversation_id, seq, sender_user_id, body, idempotency_key, reply_to_seq)
+VALUES ($1, $2, $3, $4, $5, $6)
+RETURNING id, conversation_id, seq, sender_user_id, body, created_at, delivered_at, deleted_at, reply_to_seq`
 	var m MessageRow
 	var deliveredAt2 *time.Time
 	var deletedAt2 *time.Time
-	if err := tx.QueryRow(ctx, ins, conversationID, seq, senderUserID, body, idempotencyKey).
-		Scan(&m.ID, &m.ConversationID, &m.Seq, &m.SenderUserID, &m.Body, &m.CreatedAt, &deliveredAt2, &deletedAt2); err != nil {
+	var replyOut sql.NullInt64
+	if err := tx.QueryRow(ctx, ins, conversationID, seq, senderUserID, body, idempotencyKey, replyToSeq).
+		Scan(&m.ID, &m.ConversationID, &m.Seq, &m.SenderUserID, &m.Body, &m.CreatedAt, &deliveredAt2, &deletedAt2, &replyOut); err != nil {
 		return nil, false, err
 	}
 	m.DeliveredAt = deliveredAt2
 	m.DeletedAt = deletedAt2
+	if replyOut.Valid {
+		v := replyOut.Int64
+		m.ReplyToSeq = &v
+	}
 
 	if err := tx.Commit(ctx); err != nil {
 		return nil, false, err
@@ -138,7 +170,7 @@ func (r *MessageRepository) ListByConversationBeforeSeq(ctx context.Context, con
 		const q = `
 SELECT id, conversation_id, seq, sender_user_id,
        CASE WHEN deleted_at IS NULL THEN body ELSE 'Message deleted' END AS body,
-       created_at, delivered_at, deleted_at
+       created_at, delivered_at, deleted_at, reply_to_seq
 FROM messages
 WHERE conversation_id = $1 AND seq < $2
 ORDER BY seq DESC
@@ -148,7 +180,7 @@ LIMIT $3`
 		const q = `
 SELECT id, conversation_id, seq, sender_user_id,
        CASE WHEN deleted_at IS NULL THEN body ELSE 'Message deleted' END AS body,
-       created_at, delivered_at, deleted_at
+       created_at, delivered_at, deleted_at, reply_to_seq
 FROM messages
 WHERE conversation_id = $1
 ORDER BY seq DESC
@@ -165,11 +197,16 @@ LIMIT $2`
 		var m MessageRow
 		var deliveredAt *time.Time
 		var deletedAt *time.Time
-		if err := rows.Scan(&m.ID, &m.ConversationID, &m.Seq, &m.SenderUserID, &m.Body, &m.CreatedAt, &deliveredAt, &deletedAt); err != nil {
+		var rts sql.NullInt64
+		if err := rows.Scan(&m.ID, &m.ConversationID, &m.Seq, &m.SenderUserID, &m.Body, &m.CreatedAt, &deliveredAt, &deletedAt, &rts); err != nil {
 			return nil, err
 		}
 		m.DeliveredAt = deliveredAt
 		m.DeletedAt = deletedAt
+		if rts.Valid {
+			v := rts.Int64
+			m.ReplyToSeq = &v
+		}
 		out = append(out, m)
 	}
 	return out, rows.Err()

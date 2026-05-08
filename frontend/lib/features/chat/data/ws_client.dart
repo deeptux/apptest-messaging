@@ -13,6 +13,11 @@ class WsClient {
   Timer? _reconnectTimer;
   String? _idToken;
   bool _closedByUser = false;
+  bool _connected = false;
+
+  final _conn = StreamController<bool>.broadcast();
+  Stream<bool> get connection => _conn.stream;
+  bool get isConnected => _connected;
 
   final _events = StreamController<Map<String, dynamic>>.broadcast();
   Stream<Map<String, dynamic>> get events => _events.stream;
@@ -26,6 +31,7 @@ class WsClient {
     final wsUrl = _toWsUrl('$base/ws');
     final channel = WebSocketChannel.connect(Uri.parse(wsUrl));
     _channel = channel;
+    _setConnected(true);
 
     _sub = channel.stream.listen((raw) {
       try {
@@ -34,9 +40,11 @@ class WsClient {
       } catch (_) {}
     }, onDone: () {
       _pingTimer?.cancel();
+      _setConnected(false);
       _scheduleReconnect();
     }, onError: (_) {
       _pingTimer?.cancel();
+      _setConnected(false);
       _scheduleReconnect();
     });
 
@@ -59,12 +67,18 @@ class WsClient {
     required String id,
     required String conversationId,
     required String body,
+    int? replyToSeq,
   }) {
+    final data = <String, dynamic>{
+      'conversationId': conversationId,
+      'body': body,
+      if (replyToSeq != null) 'replyToSeq': replyToSeq,
+    };
     _send({
       'v': 1,
       't': 'msg.send',
       'id': id,
-      'data': {'conversationId': conversationId, 'body': body},
+      'data': data,
     });
   }
 
@@ -117,6 +131,7 @@ class WsClient {
     _sub = null;
     await _channel?.sink.close();
     _channel = null;
+    _setConnected(false);
   }
 
   void _scheduleReconnect() {
@@ -131,6 +146,12 @@ class WsClient {
         await connect(idToken: token);
       } catch (_) {}
     });
+  }
+
+  void _setConnected(bool next) {
+    if (_connected == next) return;
+    _connected = next;
+    _conn.add(next);
   }
 }
 
