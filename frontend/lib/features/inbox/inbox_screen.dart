@@ -1,3 +1,5 @@
+import 'dart:ui' show ImageFilter;
+
 import 'package:apptest_messaging/core/providers.dart';
 import 'package:apptest_messaging/core/database/app_database.dart';
 import 'package:apptest_messaging/features/auth/session_notifier.dart';
@@ -18,6 +20,15 @@ class InboxScreen extends ConsumerStatefulWidget {
 }
 
 class _InboxScreenState extends ConsumerState<InboxScreen> {
+  /// While non-null, that row shows a remove spinner; other rows' remove control is disabled.
+  String? _hidingConversationId;
+
+  /// Full-screen glass overlay + bar while pushing [ChatScreen].
+  bool _navigatingToChat = false;
+
+  bool get _blockingInboxPointer =>
+      _navigatingToChat || _hidingConversationId != null;
+
   @override
   void initState() {
     super.initState();
@@ -56,9 +67,11 @@ class _InboxScreenState extends ConsumerState<InboxScreen> {
   }
 
   @override
-  Widget build(BuildContext context) {
+  Widget build(BuildContext inboxContext) {
     final db = ref.watch(appDatabaseProvider);
-    return Scaffold(
+    return Stack(
+      children: [
+        Scaffold(
       appBar: AppBar(
         title: Text(
           _inboxTitle(),
@@ -68,7 +81,7 @@ class _InboxScreenState extends ConsumerState<InboxScreen> {
         actions: [
           IconButton(
             tooltip: 'New chat',
-            onPressed: () => Navigator.of(context).push(
+            onPressed: () => Navigator.of(inboxContext).push(
               MaterialPageRoute(builder: (_) => NewChatScreen(selfUserId: widget.me.userId)),
             ),
             icon: const Icon(Icons.add),
@@ -80,7 +93,9 @@ class _InboxScreenState extends ConsumerState<InboxScreen> {
           ),
         ],
       ),
-      body: StreamBuilder<List<Conversation>>(
+      body: AbsorbPointer(
+        absorbing: _blockingInboxPointer,
+        child: StreamBuilder<List<Conversation>>(
         stream: (db.select(db.conversations)
               ..orderBy([
                 (c) => drift.OrderingTerm(
@@ -128,7 +143,7 @@ class _InboxScreenState extends ConsumerState<InboxScreen> {
             padding: const EdgeInsets.all(16),
             itemCount: rows.length,
             separatorBuilder: (_, __) => const SizedBox(height: 12),
-            itemBuilder: (context, i) {
+            itemBuilder: (tileContext, i) {
               final c0 = rows[i];
               return Card(
                 child: ListTile(
@@ -152,49 +167,87 @@ class _InboxScreenState extends ConsumerState<InboxScreen> {
                         lastSeq: c0.lastSeq,
                       ),
                       const SizedBox(width: 8),
-                      IconButton(
-                        tooltip: 'Delete (local)',
-                        icon: const Icon(Icons.delete_outline),
-                        onPressed: () async {
-                          final ok = await showDialog<bool>(
-                            context: context,
-                            builder: (_) => AlertDialog(
-                              title: const Text('Remove Conversation?'),
-                              content: const Text(
-                                'Removed, not deleted. It will reappear if a new message arrives.',
+                      SizedBox(
+                        width: 48,
+                        height: 48,
+                        child: _hidingConversationId == c0.conversationId
+                            ? Padding(
+                                padding: const EdgeInsets.all(13),
+                                child: CircularProgressIndicator(
+                                  strokeWidth: 2.5,
+                                  color: Theme.of(tileContext).colorScheme.primary,
+                                ),
+                              )
+                            : IconButton(
+                                tooltip: 'Remove (local)',
+                                icon: const Icon(Icons.archive_outlined),
+                                onPressed: _hidingConversationId != null
+                                    ? null
+                                    : () async {
+                                        final ok = await showDialog<bool>(
+                                          context: tileContext,
+                                          builder: (dialogContext) => AlertDialog(
+                                            title: const Text('Remove Conversation?'),
+                                            content: const Text(
+                                              'Removed, not deleted. It will reappear if a new message arrives.',
+                                            ),
+                                            actions: [
+                                              TextButton(
+                                                onPressed: () =>
+                                                    Navigator.of(dialogContext).pop(false),
+                                                child: const Text('Cancel'),
+                                              ),
+                                              FilledButton(
+                                                onPressed: () =>
+                                                    Navigator.of(dialogContext).pop(true),
+                                                child: const Text('Remove'),
+                                              ),
+                                            ],
+                                          ),
+                                        );
+                                        if (ok != true) return;
+                                        if (!mounted) return;
+                                        if (!inboxContext.mounted) return;
+                                        setState(() => _hidingConversationId = c0.conversationId);
+                                        final container =
+                                            ProviderScope.containerOf(inboxContext, listen: false);
+                                        try {
+                                          await container.read(chatRepositoryProvider).hideConversation(
+                                                selfUserId: widget.me.userId,
+                                                conversationId: c0.conversationId,
+                                              );
+                                        } catch (_) {
+                                          if (!mounted || !inboxContext.mounted) return;
+                                          ScaffoldMessenger.of(inboxContext).showSnackBar(
+                                            const SnackBar(
+                                                content: Text('Could not remove conversation')),
+                                          );
+                                        } finally {
+                                          if (mounted) {
+                                            setState(() => _hidingConversationId = null);
+                                          }
+                                        }
+                                      },
                               ),
-                              actions: [
-                                TextButton(
-                                  onPressed: () => Navigator.of(context).pop(false),
-                                  child: const Text('Cancel'),
-                                ),
-                                FilledButton(
-                                  onPressed: () => Navigator.of(context).pop(true),
-                                  child: const Text('Delete'),
-                                ),
-                              ],
-                            ),
-                          );
-                          if (ok == true) {
-                            await ref.read(chatRepositoryProvider).hideConversation(
-                                  selfUserId: widget.me.userId,
-                                  conversationId: c0.conversationId,
-                                );
-                          }
-                        },
                       ),
                     ],
                   ),
                   onTap: () async {
-                    await Navigator.of(context).push(
-                      MaterialPageRoute(
-                        builder: (_) => ChatScreen(
-                          conversationId: c0.conversationId,
-                          title: c0.otherDisplayName ?? c0.otherEmail ?? 'Chat',
-                          selfUserId: widget.me.userId,
+                    if (_navigatingToChat || _hidingConversationId != null) return;
+                    setState(() => _navigatingToChat = true);
+                    try {
+                      await Navigator.of(tileContext).push(
+                        MaterialPageRoute(
+                          builder: (_) => ChatScreen(
+                            conversationId: c0.conversationId,
+                            title: c0.otherDisplayName ?? c0.otherEmail ?? 'Chat',
+                            selfUserId: widget.me.userId,
+                          ),
                         ),
-                      ),
-                    );
+                      );
+                    } finally {
+                      if (mounted) setState(() => _navigatingToChat = false);
+                    }
                   },
                 ),
               );
@@ -202,6 +255,52 @@ class _InboxScreenState extends ConsumerState<InboxScreen> {
           );
         },
       ),
+      ),
+        ),
+        if (_navigatingToChat)
+          Positioned.fill(
+            child: AbsorbPointer(
+              absorbing: true,
+              child: ClipRect(
+                child: BackdropFilter(
+                  filter: ImageFilter.blur(sigmaX: 8, sigmaY: 8),
+                  child: Material(
+                    color: Theme.of(inboxContext)
+                        .colorScheme
+                        .surfaceContainerHighest
+                        .withValues(alpha: 0.45),
+                    child: Center(
+                      child: Padding(
+                        padding: const EdgeInsets.symmetric(horizontal: 40),
+                        child: ConstrainedBox(
+                          constraints: const BoxConstraints(maxWidth: 280),
+                          child: Column(
+                            mainAxisSize: MainAxisSize.min,
+                            crossAxisAlignment: CrossAxisAlignment.stretch,
+                            children: [
+                              LinearProgressIndicator(
+                                borderRadius: BorderRadius.circular(4),
+                              ),
+                              const SizedBox(height: 16),
+                              Text(
+                                'Opening chat…',
+                                textAlign: TextAlign.center,
+                                style: Theme.of(inboxContext).textTheme.titleSmall?.copyWith(
+                                      color:
+                                          Theme.of(inboxContext).colorScheme.onSurface.withValues(alpha: 0.85),
+                                    ),
+                              ),
+                            ],
+                          ),
+                        ),
+                      ),
+                    ),
+                  ),
+                ),
+              ),
+            ),
+          ),
+      ],
     );
   }
 }

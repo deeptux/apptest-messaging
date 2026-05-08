@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:apptest_messaging/core/database/app_database.dart';
 import 'package:apptest_messaging/core/providers.dart';
 import 'package:drift/drift.dart' as drift;
@@ -6,6 +8,35 @@ import 'package:flutter_linkify/flutter_linkify.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:url_launcher/url_launcher.dart';
 import 'package:uuid/uuid.dart';
+
+/// Persists read cursor after [ChatScreen] is torn down (e.g. before debounce fires).
+Future<void> _flushReadAfterChatClosed(
+  ProviderContainer container,
+  String conversationId,
+  String selfUserId,
+) async {
+  try {
+    final db = container.read(appDatabaseProvider);
+    final latest = await db.listMessagesLatest(conversationId: conversationId, limit: 1);
+    if (latest.isEmpty) return;
+    final tip = latest.first.seq;
+    await container.read(chatRepositoryProvider).markRead(
+          conversationId: conversationId,
+          lastReadSeq: tip,
+        );
+    await db.upsertMember(
+      conversationId: conversationId,
+      userId: selfUserId,
+      lastReadSeq: tip,
+    );
+    container.read(wsClientProvider).sendReadMark(
+          conversationId: conversationId,
+          lastReadSeq: tip,
+        );
+  } catch (_) {
+    // Best-effort; inbox already uses local lastRead for badge.
+  }
+}
 
 class ChatScreen extends ConsumerStatefulWidget {
   const ChatScreen({
@@ -28,22 +59,34 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
   final _composer = TextEditingController();
   bool _loadingOlder = false;
 
+  /// Captured once built; used after dispose without touching [ref].
+  ProviderContainer? _scopeContainer;
+
+  /// Highest seq we have applied to local/API read state this visit.
+  int _lastReadApplied = -1;
+
+  Timer? _readDebounce;
+  StreamSubscription<List<Message>>? _latestMsgSub;
+
   @override
   void initState() {
     super.initState();
 
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (!mounted) return;
+      _scopeContainer ??= ProviderScope.containerOf(context, listen: false);
+      _attachLatestMessageSubscription();
+    });
+
     Future.microtask(() async {
+      if (!mounted) return;
       await ref.read(chatRepositoryProvider).syncLatestMessages(conversationId: widget.conversationId);
+      if (!mounted) return;
       final db = ref.read(appDatabaseProvider);
       final latest = await db.listMessagesLatest(conversationId: widget.conversationId, limit: 1);
+      if (!mounted) return;
       final lastSeq = latest.isEmpty ? 0 : latest.first.seq;
-      await ref.read(chatRepositoryProvider).markRead(conversationId: widget.conversationId, lastReadSeq: lastSeq);
-      await db.upsertMember(
-        conversationId: widget.conversationId,
-        userId: widget.selfUserId,
-        lastReadSeq: lastSeq,
-      );
-      ref.read(wsClientProvider).sendReadMark(conversationId: widget.conversationId, lastReadSeq: lastSeq);
+      await _applyReadSeq(lastSeq);
     });
 
     _scroll.addListener(() async {
@@ -55,12 +98,14 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
 
       _loadingOlder = true;
       try {
+        if (!mounted) return;
         final db = ref.read(appDatabaseProvider);
         final all = await (db.select(db.messages)
               ..where((m) => m.conversationId.equals(widget.conversationId))
               ..orderBy([(m) => drift.OrderingTerm(expression: m.seq, mode: drift.OrderingMode.asc)])
               ..limit(1))
             .get();
+        if (!mounted) return;
         final oldest = all.isEmpty ? null : all.first;
         if (oldest == null) return;
         final before = oldest.seq;
@@ -74,11 +119,56 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
     });
   }
 
+  void _attachLatestMessageSubscription() {
+    if (_latestMsgSub != null) return;
+    final db = ref.read(appDatabaseProvider);
+    final stream = (db.select(db.messages)
+          ..where((m) => m.conversationId.equals(widget.conversationId))
+          ..orderBy([(m) => drift.OrderingTerm(expression: m.seq, mode: drift.OrderingMode.desc)])
+          ..limit(1))
+        .watch();
+    _latestMsgSub = stream.listen((rows) {
+      if (!mounted || rows.isEmpty) return;
+      final tipSeq = rows.first.seq;
+      _scheduleApplyRead(tipSeq);
+    });
+  }
+
+  void _scheduleApplyRead(int seq) {
+    if (seq <= 0) return;
+    _readDebounce?.cancel();
+    _readDebounce = Timer(const Duration(milliseconds: 180), () {
+      if (!mounted) return;
+      unawaited(_applyReadSeq(seq));
+    });
+  }
+
+  Future<void> _applyReadSeq(int seq) async {
+    if (!mounted || seq <= 0 || seq <= _lastReadApplied) return;
+    _lastReadApplied = seq;
+    await ref.read(chatRepositoryProvider).markRead(conversationId: widget.conversationId, lastReadSeq: seq);
+    if (!mounted) return;
+    final db = ref.read(appDatabaseProvider);
+    await db.upsertMember(
+      conversationId: widget.conversationId,
+      userId: widget.selfUserId,
+      lastReadSeq: seq,
+    );
+    if (!mounted) return;
+    ref.read(wsClientProvider).sendReadMark(conversationId: widget.conversationId, lastReadSeq: seq);
+  }
+
   @override
   void dispose() {
+    _readDebounce?.cancel();
+    _latestMsgSub?.cancel();
+    final container = _scopeContainer;
     _scroll.dispose();
     _composer.dispose();
     super.dispose();
+    if (container != null) {
+      unawaited(_flushReadAfterChatClosed(container, widget.conversationId, widget.selfUserId));
+    }
   }
 
   Future<void> _send() async {
