@@ -75,7 +75,11 @@ class AppDatabase extends _$AppDatabase {
             await m.createTable(conversationMembers);
             await m.createTable(messages);
           }
-          if (from < 3) {
+          // Schema 1→2 path above creates [messages] from the current Dart schema,
+          // which already includes [deletedAt]. Only legacy DBs at version 2 need
+          // the ALTER; running addColumn after createTable(from<2) causes
+          // "duplicate column name: deleted_at" (seen on persistent browser storage).
+          if (from >= 2 && from < 3) {
             await m.addColumn(messages, messages.deletedAt);
           }
         },
