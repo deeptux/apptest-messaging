@@ -37,13 +37,22 @@ class _InboxScreenState extends ConsumerState<InboxScreen> {
   }
 
   String _inboxTitle() {
-    final handle = widget.me.anonymousUsername?.trim();
-    if (handle == null || handle.isEmpty) {
-      return 'Inbox';
+    final anon = widget.me.anonymousUsername?.trim();
+    if (anon != null && anon.isNotEmpty) {
+      final friendly = widget.me.displayName?.trim();
+      final name =
+          (friendly != null && friendly.isNotEmpty) ? friendly : anon;
+      return 'Inbox | Hi $name!';
     }
-    final friendly = widget.me.displayName?.trim();
-    final name = (friendly != null && friendly.isNotEmpty) ? friendly : handle;
-    return 'Inbox | Hi $name!';
+    final dn = widget.me.displayName?.trim();
+    if (dn != null && dn.isNotEmpty) {
+      return 'Inbox | Hi $dn!';
+    }
+    final em = widget.me.email?.trim();
+    if (em != null && em.isNotEmpty) {
+      return 'Inbox | Hi $em!';
+    }
+    return 'Inbox';
   }
 
   @override
