@@ -164,7 +164,7 @@ func ConversationMessages(chat *services.ChatService, me *services.MeService) gi
 				v := m.Seq
 				nextBefore = &v
 			}
-			out = append(out, gin.H{
+			h := gin.H{
 				"messageId":      m.ID.String(),
 				"conversationId": m.ConversationID.String(),
 				"seq":            m.Seq,
@@ -173,7 +173,11 @@ func ConversationMessages(chat *services.ChatService, me *services.MeService) gi
 				"createdAt":      m.CreatedAt,
 				"deliveredAt":    m.DeliveredAt,
 				"deletedAt":      m.DeletedAt,
-			})
+			}
+			if m.ReplyToSeq != nil {
+				h["replyToSeq"] = *m.ReplyToSeq
+			}
+			out = append(out, h)
 		}
 		c.JSON(http.StatusOK, gin.H{
 			"messages":      out,

@@ -2,6 +2,7 @@ import 'package:apptest_messaging/core/config.dart';
 import 'package:apptest_messaging/core/database/app_database.dart';
 import 'package:apptest_messaging/features/chat/data/chat_api.dart';
 import 'package:apptest_messaging/features/chat/data/chat_repository.dart';
+import 'package:apptest_messaging/features/chat/data/outbox_service.dart';
 import 'package:apptest_messaging/features/chat/data/ws_client.dart';
 import 'package:dio/dio.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
@@ -59,4 +60,11 @@ final wsClientProvider = Provider<WsClient>((ref) {
   final c = WsClient();
   ref.onDispose(c.close);
   return c;
+});
+
+final outboxServiceProvider = Provider<OutboxService>((ref) {
+  return OutboxService(
+    db: ref.watch(appDatabaseProvider),
+    ws: ref.watch(wsClientProvider),
+  );
 });

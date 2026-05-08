@@ -1156,6 +1156,12 @@ class $MessagesTable extends Messages with TableInfo<$MessagesTable, Message> {
   late final GeneratedColumn<DateTime> deletedAt = GeneratedColumn<DateTime>(
       'deleted_at', aliasedName, true,
       type: DriftSqlType.dateTime, requiredDuringInsert: false);
+  static const VerificationMeta _replyToSeqMeta =
+      const VerificationMeta('replyToSeq');
+  @override
+  late final GeneratedColumn<int> replyToSeq = GeneratedColumn<int>(
+      'reply_to_seq', aliasedName, true,
+      type: DriftSqlType.int, requiredDuringInsert: false);
   @override
   List<GeneratedColumn> get $columns => [
         messageId,
@@ -1165,7 +1171,8 @@ class $MessagesTable extends Messages with TableInfo<$MessagesTable, Message> {
         body,
         createdAt,
         deliveredAt,
-        deletedAt
+        deletedAt,
+        replyToSeq
       ];
   @override
   String get aliasedName => _alias ?? actualTableName;
@@ -1227,6 +1234,12 @@ class $MessagesTable extends Messages with TableInfo<$MessagesTable, Message> {
       context.handle(_deletedAtMeta,
           deletedAt.isAcceptableOrUnknown(data['deleted_at']!, _deletedAtMeta));
     }
+    if (data.containsKey('reply_to_seq')) {
+      context.handle(
+          _replyToSeqMeta,
+          replyToSeq.isAcceptableOrUnknown(
+              data['reply_to_seq']!, _replyToSeqMeta));
+    }
     return context;
   }
 
@@ -1252,6 +1265,8 @@ class $MessagesTable extends Messages with TableInfo<$MessagesTable, Message> {
           .read(DriftSqlType.dateTime, data['${effectivePrefix}delivered_at']),
       deletedAt: attachedDatabase.typeMapping
           .read(DriftSqlType.dateTime, data['${effectivePrefix}deleted_at']),
+      replyToSeq: attachedDatabase.typeMapping
+          .read(DriftSqlType.int, data['${effectivePrefix}reply_to_seq']),
     );
   }
 
@@ -1270,6 +1285,7 @@ class Message extends DataClass implements Insertable<Message> {
   final DateTime createdAt;
   final DateTime? deliveredAt;
   final DateTime? deletedAt;
+  final int? replyToSeq;
   const Message(
       {required this.messageId,
       required this.conversationId,
@@ -1278,7 +1294,8 @@ class Message extends DataClass implements Insertable<Message> {
       required this.body,
       required this.createdAt,
       this.deliveredAt,
-      this.deletedAt});
+      this.deletedAt,
+      this.replyToSeq});
   @override
   Map<String, Expression> toColumns(bool nullToAbsent) {
     final map = <String, Expression>{};
@@ -1293,6 +1310,9 @@ class Message extends DataClass implements Insertable<Message> {
     }
     if (!nullToAbsent || deletedAt != null) {
       map['deleted_at'] = Variable<DateTime>(deletedAt);
+    }
+    if (!nullToAbsent || replyToSeq != null) {
+      map['reply_to_seq'] = Variable<int>(replyToSeq);
     }
     return map;
   }
@@ -1311,6 +1331,9 @@ class Message extends DataClass implements Insertable<Message> {
       deletedAt: deletedAt == null && nullToAbsent
           ? const Value.absent()
           : Value(deletedAt),
+      replyToSeq: replyToSeq == null && nullToAbsent
+          ? const Value.absent()
+          : Value(replyToSeq),
     );
   }
 
@@ -1326,6 +1349,7 @@ class Message extends DataClass implements Insertable<Message> {
       createdAt: serializer.fromJson<DateTime>(json['createdAt']),
       deliveredAt: serializer.fromJson<DateTime?>(json['deliveredAt']),
       deletedAt: serializer.fromJson<DateTime?>(json['deletedAt']),
+      replyToSeq: serializer.fromJson<int?>(json['replyToSeq']),
     );
   }
   @override
@@ -1340,6 +1364,7 @@ class Message extends DataClass implements Insertable<Message> {
       'createdAt': serializer.toJson<DateTime>(createdAt),
       'deliveredAt': serializer.toJson<DateTime?>(deliveredAt),
       'deletedAt': serializer.toJson<DateTime?>(deletedAt),
+      'replyToSeq': serializer.toJson<int?>(replyToSeq),
     };
   }
 
@@ -1351,7 +1376,8 @@ class Message extends DataClass implements Insertable<Message> {
           String? body,
           DateTime? createdAt,
           Value<DateTime?> deliveredAt = const Value.absent(),
-          Value<DateTime?> deletedAt = const Value.absent()}) =>
+          Value<DateTime?> deletedAt = const Value.absent(),
+          Value<int?> replyToSeq = const Value.absent()}) =>
       Message(
         messageId: messageId ?? this.messageId,
         conversationId: conversationId ?? this.conversationId,
@@ -1361,6 +1387,7 @@ class Message extends DataClass implements Insertable<Message> {
         createdAt: createdAt ?? this.createdAt,
         deliveredAt: deliveredAt.present ? deliveredAt.value : this.deliveredAt,
         deletedAt: deletedAt.present ? deletedAt.value : this.deletedAt,
+        replyToSeq: replyToSeq.present ? replyToSeq.value : this.replyToSeq,
       );
   Message copyWithCompanion(MessagesCompanion data) {
     return Message(
@@ -1377,6 +1404,8 @@ class Message extends DataClass implements Insertable<Message> {
       deliveredAt:
           data.deliveredAt.present ? data.deliveredAt.value : this.deliveredAt,
       deletedAt: data.deletedAt.present ? data.deletedAt.value : this.deletedAt,
+      replyToSeq:
+          data.replyToSeq.present ? data.replyToSeq.value : this.replyToSeq,
     );
   }
 
@@ -1390,14 +1419,15 @@ class Message extends DataClass implements Insertable<Message> {
           ..write('body: $body, ')
           ..write('createdAt: $createdAt, ')
           ..write('deliveredAt: $deliveredAt, ')
-          ..write('deletedAt: $deletedAt')
+          ..write('deletedAt: $deletedAt, ')
+          ..write('replyToSeq: $replyToSeq')
           ..write(')'))
         .toString();
   }
 
   @override
   int get hashCode => Object.hash(messageId, conversationId, seq, senderUserId,
-      body, createdAt, deliveredAt, deletedAt);
+      body, createdAt, deliveredAt, deletedAt, replyToSeq);
   @override
   bool operator ==(Object other) =>
       identical(this, other) ||
@@ -1409,7 +1439,8 @@ class Message extends DataClass implements Insertable<Message> {
           other.body == this.body &&
           other.createdAt == this.createdAt &&
           other.deliveredAt == this.deliveredAt &&
-          other.deletedAt == this.deletedAt);
+          other.deletedAt == this.deletedAt &&
+          other.replyToSeq == this.replyToSeq);
 }
 
 class MessagesCompanion extends UpdateCompanion<Message> {
@@ -1421,6 +1452,7 @@ class MessagesCompanion extends UpdateCompanion<Message> {
   final Value<DateTime> createdAt;
   final Value<DateTime?> deliveredAt;
   final Value<DateTime?> deletedAt;
+  final Value<int?> replyToSeq;
   final Value<int> rowid;
   const MessagesCompanion({
     this.messageId = const Value.absent(),
@@ -1431,6 +1463,7 @@ class MessagesCompanion extends UpdateCompanion<Message> {
     this.createdAt = const Value.absent(),
     this.deliveredAt = const Value.absent(),
     this.deletedAt = const Value.absent(),
+    this.replyToSeq = const Value.absent(),
     this.rowid = const Value.absent(),
   });
   MessagesCompanion.insert({
@@ -1442,6 +1475,7 @@ class MessagesCompanion extends UpdateCompanion<Message> {
     required DateTime createdAt,
     this.deliveredAt = const Value.absent(),
     this.deletedAt = const Value.absent(),
+    this.replyToSeq = const Value.absent(),
     this.rowid = const Value.absent(),
   })  : messageId = Value(messageId),
         conversationId = Value(conversationId),
@@ -1458,6 +1492,7 @@ class MessagesCompanion extends UpdateCompanion<Message> {
     Expression<DateTime>? createdAt,
     Expression<DateTime>? deliveredAt,
     Expression<DateTime>? deletedAt,
+    Expression<int>? replyToSeq,
     Expression<int>? rowid,
   }) {
     return RawValuesInsertable({
@@ -1469,6 +1504,7 @@ class MessagesCompanion extends UpdateCompanion<Message> {
       if (createdAt != null) 'created_at': createdAt,
       if (deliveredAt != null) 'delivered_at': deliveredAt,
       if (deletedAt != null) 'deleted_at': deletedAt,
+      if (replyToSeq != null) 'reply_to_seq': replyToSeq,
       if (rowid != null) 'rowid': rowid,
     });
   }
@@ -1482,6 +1518,7 @@ class MessagesCompanion extends UpdateCompanion<Message> {
       Value<DateTime>? createdAt,
       Value<DateTime?>? deliveredAt,
       Value<DateTime?>? deletedAt,
+      Value<int?>? replyToSeq,
       Value<int>? rowid}) {
     return MessagesCompanion(
       messageId: messageId ?? this.messageId,
@@ -1492,6 +1529,7 @@ class MessagesCompanion extends UpdateCompanion<Message> {
       createdAt: createdAt ?? this.createdAt,
       deliveredAt: deliveredAt ?? this.deliveredAt,
       deletedAt: deletedAt ?? this.deletedAt,
+      replyToSeq: replyToSeq ?? this.replyToSeq,
       rowid: rowid ?? this.rowid,
     );
   }
@@ -1523,6 +1561,9 @@ class MessagesCompanion extends UpdateCompanion<Message> {
     if (deletedAt.present) {
       map['deleted_at'] = Variable<DateTime>(deletedAt.value);
     }
+    if (replyToSeq.present) {
+      map['reply_to_seq'] = Variable<int>(replyToSeq.value);
+    }
     if (rowid.present) {
       map['rowid'] = Variable<int>(rowid.value);
     }
@@ -1540,6 +1581,484 @@ class MessagesCompanion extends UpdateCompanion<Message> {
           ..write('createdAt: $createdAt, ')
           ..write('deliveredAt: $deliveredAt, ')
           ..write('deletedAt: $deletedAt, ')
+          ..write('replyToSeq: $replyToSeq, ')
+          ..write('rowid: $rowid')
+          ..write(')'))
+        .toString();
+  }
+}
+
+class $OutboxMessagesTable extends OutboxMessages
+    with TableInfo<$OutboxMessagesTable, OutboxMessage> {
+  @override
+  final GeneratedDatabase attachedDatabase;
+  final String? _alias;
+  $OutboxMessagesTable(this.attachedDatabase, [this._alias]);
+  static const VerificationMeta _clientIdMeta =
+      const VerificationMeta('clientId');
+  @override
+  late final GeneratedColumn<String> clientId = GeneratedColumn<String>(
+      'client_id', aliasedName, false,
+      type: DriftSqlType.string, requiredDuringInsert: true);
+  static const VerificationMeta _conversationIdMeta =
+      const VerificationMeta('conversationId');
+  @override
+  late final GeneratedColumn<String> conversationId = GeneratedColumn<String>(
+      'conversation_id', aliasedName, false,
+      type: DriftSqlType.string, requiredDuringInsert: true);
+  static const VerificationMeta _bodyMeta = const VerificationMeta('body');
+  @override
+  late final GeneratedColumn<String> body = GeneratedColumn<String>(
+      'body', aliasedName, false,
+      type: DriftSqlType.string, requiredDuringInsert: true);
+  static const VerificationMeta _createdAtMeta =
+      const VerificationMeta('createdAt');
+  @override
+  late final GeneratedColumn<DateTime> createdAt = GeneratedColumn<DateTime>(
+      'created_at', aliasedName, false,
+      type: DriftSqlType.dateTime, requiredDuringInsert: true);
+  static const VerificationMeta _replyToSeqMeta =
+      const VerificationMeta('replyToSeq');
+  @override
+  late final GeneratedColumn<int> replyToSeq = GeneratedColumn<int>(
+      'reply_to_seq', aliasedName, true,
+      type: DriftSqlType.int, requiredDuringInsert: false);
+  static const VerificationMeta _statusMeta = const VerificationMeta('status');
+  @override
+  late final GeneratedColumn<String> status = GeneratedColumn<String>(
+      'status', aliasedName, false,
+      type: DriftSqlType.string, requiredDuringInsert: true);
+  static const VerificationMeta _attemptsMeta =
+      const VerificationMeta('attempts');
+  @override
+  late final GeneratedColumn<int> attempts = GeneratedColumn<int>(
+      'attempts', aliasedName, false,
+      type: DriftSqlType.int,
+      requiredDuringInsert: false,
+      defaultValue: const Constant(0));
+  static const VerificationMeta _lastErrorMeta =
+      const VerificationMeta('lastError');
+  @override
+  late final GeneratedColumn<String> lastError = GeneratedColumn<String>(
+      'last_error', aliasedName, true,
+      type: DriftSqlType.string, requiredDuringInsert: false);
+  static const VerificationMeta _updatedAtMeta =
+      const VerificationMeta('updatedAt');
+  @override
+  late final GeneratedColumn<DateTime> updatedAt = GeneratedColumn<DateTime>(
+      'updated_at', aliasedName, false,
+      type: DriftSqlType.dateTime, requiredDuringInsert: true);
+  @override
+  List<GeneratedColumn> get $columns => [
+        clientId,
+        conversationId,
+        body,
+        createdAt,
+        replyToSeq,
+        status,
+        attempts,
+        lastError,
+        updatedAt
+      ];
+  @override
+  String get aliasedName => _alias ?? actualTableName;
+  @override
+  String get actualTableName => $name;
+  static const String $name = 'outbox_messages';
+  @override
+  VerificationContext validateIntegrity(Insertable<OutboxMessage> instance,
+      {bool isInserting = false}) {
+    final context = VerificationContext();
+    final data = instance.toColumns(true);
+    if (data.containsKey('client_id')) {
+      context.handle(_clientIdMeta,
+          clientId.isAcceptableOrUnknown(data['client_id']!, _clientIdMeta));
+    } else if (isInserting) {
+      context.missing(_clientIdMeta);
+    }
+    if (data.containsKey('conversation_id')) {
+      context.handle(
+          _conversationIdMeta,
+          conversationId.isAcceptableOrUnknown(
+              data['conversation_id']!, _conversationIdMeta));
+    } else if (isInserting) {
+      context.missing(_conversationIdMeta);
+    }
+    if (data.containsKey('body')) {
+      context.handle(
+          _bodyMeta, body.isAcceptableOrUnknown(data['body']!, _bodyMeta));
+    } else if (isInserting) {
+      context.missing(_bodyMeta);
+    }
+    if (data.containsKey('created_at')) {
+      context.handle(_createdAtMeta,
+          createdAt.isAcceptableOrUnknown(data['created_at']!, _createdAtMeta));
+    } else if (isInserting) {
+      context.missing(_createdAtMeta);
+    }
+    if (data.containsKey('reply_to_seq')) {
+      context.handle(
+          _replyToSeqMeta,
+          replyToSeq.isAcceptableOrUnknown(
+              data['reply_to_seq']!, _replyToSeqMeta));
+    }
+    if (data.containsKey('status')) {
+      context.handle(_statusMeta,
+          status.isAcceptableOrUnknown(data['status']!, _statusMeta));
+    } else if (isInserting) {
+      context.missing(_statusMeta);
+    }
+    if (data.containsKey('attempts')) {
+      context.handle(_attemptsMeta,
+          attempts.isAcceptableOrUnknown(data['attempts']!, _attemptsMeta));
+    }
+    if (data.containsKey('last_error')) {
+      context.handle(_lastErrorMeta,
+          lastError.isAcceptableOrUnknown(data['last_error']!, _lastErrorMeta));
+    }
+    if (data.containsKey('updated_at')) {
+      context.handle(_updatedAtMeta,
+          updatedAt.isAcceptableOrUnknown(data['updated_at']!, _updatedAtMeta));
+    } else if (isInserting) {
+      context.missing(_updatedAtMeta);
+    }
+    return context;
+  }
+
+  @override
+  Set<GeneratedColumn> get $primaryKey => {clientId};
+  @override
+  OutboxMessage map(Map<String, dynamic> data, {String? tablePrefix}) {
+    final effectivePrefix = tablePrefix != null ? '$tablePrefix.' : '';
+    return OutboxMessage(
+      clientId: attachedDatabase.typeMapping
+          .read(DriftSqlType.string, data['${effectivePrefix}client_id'])!,
+      conversationId: attachedDatabase.typeMapping.read(
+          DriftSqlType.string, data['${effectivePrefix}conversation_id'])!,
+      body: attachedDatabase.typeMapping
+          .read(DriftSqlType.string, data['${effectivePrefix}body'])!,
+      createdAt: attachedDatabase.typeMapping
+          .read(DriftSqlType.dateTime, data['${effectivePrefix}created_at'])!,
+      replyToSeq: attachedDatabase.typeMapping
+          .read(DriftSqlType.int, data['${effectivePrefix}reply_to_seq']),
+      status: attachedDatabase.typeMapping
+          .read(DriftSqlType.string, data['${effectivePrefix}status'])!,
+      attempts: attachedDatabase.typeMapping
+          .read(DriftSqlType.int, data['${effectivePrefix}attempts'])!,
+      lastError: attachedDatabase.typeMapping
+          .read(DriftSqlType.string, data['${effectivePrefix}last_error']),
+      updatedAt: attachedDatabase.typeMapping
+          .read(DriftSqlType.dateTime, data['${effectivePrefix}updated_at'])!,
+    );
+  }
+
+  @override
+  $OutboxMessagesTable createAlias(String alias) {
+    return $OutboxMessagesTable(attachedDatabase, alias);
+  }
+}
+
+class OutboxMessage extends DataClass implements Insertable<OutboxMessage> {
+  final String clientId;
+  final String conversationId;
+  final String body;
+  final DateTime createdAt;
+  final int? replyToSeq;
+
+  /// queued | sending | failed
+  final String status;
+  final int attempts;
+  final String? lastError;
+  final DateTime updatedAt;
+  const OutboxMessage(
+      {required this.clientId,
+      required this.conversationId,
+      required this.body,
+      required this.createdAt,
+      this.replyToSeq,
+      required this.status,
+      required this.attempts,
+      this.lastError,
+      required this.updatedAt});
+  @override
+  Map<String, Expression> toColumns(bool nullToAbsent) {
+    final map = <String, Expression>{};
+    map['client_id'] = Variable<String>(clientId);
+    map['conversation_id'] = Variable<String>(conversationId);
+    map['body'] = Variable<String>(body);
+    map['created_at'] = Variable<DateTime>(createdAt);
+    if (!nullToAbsent || replyToSeq != null) {
+      map['reply_to_seq'] = Variable<int>(replyToSeq);
+    }
+    map['status'] = Variable<String>(status);
+    map['attempts'] = Variable<int>(attempts);
+    if (!nullToAbsent || lastError != null) {
+      map['last_error'] = Variable<String>(lastError);
+    }
+    map['updated_at'] = Variable<DateTime>(updatedAt);
+    return map;
+  }
+
+  OutboxMessagesCompanion toCompanion(bool nullToAbsent) {
+    return OutboxMessagesCompanion(
+      clientId: Value(clientId),
+      conversationId: Value(conversationId),
+      body: Value(body),
+      createdAt: Value(createdAt),
+      replyToSeq: replyToSeq == null && nullToAbsent
+          ? const Value.absent()
+          : Value(replyToSeq),
+      status: Value(status),
+      attempts: Value(attempts),
+      lastError: lastError == null && nullToAbsent
+          ? const Value.absent()
+          : Value(lastError),
+      updatedAt: Value(updatedAt),
+    );
+  }
+
+  factory OutboxMessage.fromJson(Map<String, dynamic> json,
+      {ValueSerializer? serializer}) {
+    serializer ??= driftRuntimeOptions.defaultSerializer;
+    return OutboxMessage(
+      clientId: serializer.fromJson<String>(json['clientId']),
+      conversationId: serializer.fromJson<String>(json['conversationId']),
+      body: serializer.fromJson<String>(json['body']),
+      createdAt: serializer.fromJson<DateTime>(json['createdAt']),
+      replyToSeq: serializer.fromJson<int?>(json['replyToSeq']),
+      status: serializer.fromJson<String>(json['status']),
+      attempts: serializer.fromJson<int>(json['attempts']),
+      lastError: serializer.fromJson<String?>(json['lastError']),
+      updatedAt: serializer.fromJson<DateTime>(json['updatedAt']),
+    );
+  }
+  @override
+  Map<String, dynamic> toJson({ValueSerializer? serializer}) {
+    serializer ??= driftRuntimeOptions.defaultSerializer;
+    return <String, dynamic>{
+      'clientId': serializer.toJson<String>(clientId),
+      'conversationId': serializer.toJson<String>(conversationId),
+      'body': serializer.toJson<String>(body),
+      'createdAt': serializer.toJson<DateTime>(createdAt),
+      'replyToSeq': serializer.toJson<int?>(replyToSeq),
+      'status': serializer.toJson<String>(status),
+      'attempts': serializer.toJson<int>(attempts),
+      'lastError': serializer.toJson<String?>(lastError),
+      'updatedAt': serializer.toJson<DateTime>(updatedAt),
+    };
+  }
+
+  OutboxMessage copyWith(
+          {String? clientId,
+          String? conversationId,
+          String? body,
+          DateTime? createdAt,
+          Value<int?> replyToSeq = const Value.absent(),
+          String? status,
+          int? attempts,
+          Value<String?> lastError = const Value.absent(),
+          DateTime? updatedAt}) =>
+      OutboxMessage(
+        clientId: clientId ?? this.clientId,
+        conversationId: conversationId ?? this.conversationId,
+        body: body ?? this.body,
+        createdAt: createdAt ?? this.createdAt,
+        replyToSeq: replyToSeq.present ? replyToSeq.value : this.replyToSeq,
+        status: status ?? this.status,
+        attempts: attempts ?? this.attempts,
+        lastError: lastError.present ? lastError.value : this.lastError,
+        updatedAt: updatedAt ?? this.updatedAt,
+      );
+  OutboxMessage copyWithCompanion(OutboxMessagesCompanion data) {
+    return OutboxMessage(
+      clientId: data.clientId.present ? data.clientId.value : this.clientId,
+      conversationId: data.conversationId.present
+          ? data.conversationId.value
+          : this.conversationId,
+      body: data.body.present ? data.body.value : this.body,
+      createdAt: data.createdAt.present ? data.createdAt.value : this.createdAt,
+      replyToSeq:
+          data.replyToSeq.present ? data.replyToSeq.value : this.replyToSeq,
+      status: data.status.present ? data.status.value : this.status,
+      attempts: data.attempts.present ? data.attempts.value : this.attempts,
+      lastError: data.lastError.present ? data.lastError.value : this.lastError,
+      updatedAt: data.updatedAt.present ? data.updatedAt.value : this.updatedAt,
+    );
+  }
+
+  @override
+  String toString() {
+    return (StringBuffer('OutboxMessage(')
+          ..write('clientId: $clientId, ')
+          ..write('conversationId: $conversationId, ')
+          ..write('body: $body, ')
+          ..write('createdAt: $createdAt, ')
+          ..write('replyToSeq: $replyToSeq, ')
+          ..write('status: $status, ')
+          ..write('attempts: $attempts, ')
+          ..write('lastError: $lastError, ')
+          ..write('updatedAt: $updatedAt')
+          ..write(')'))
+        .toString();
+  }
+
+  @override
+  int get hashCode => Object.hash(clientId, conversationId, body, createdAt,
+      replyToSeq, status, attempts, lastError, updatedAt);
+  @override
+  bool operator ==(Object other) =>
+      identical(this, other) ||
+      (other is OutboxMessage &&
+          other.clientId == this.clientId &&
+          other.conversationId == this.conversationId &&
+          other.body == this.body &&
+          other.createdAt == this.createdAt &&
+          other.replyToSeq == this.replyToSeq &&
+          other.status == this.status &&
+          other.attempts == this.attempts &&
+          other.lastError == this.lastError &&
+          other.updatedAt == this.updatedAt);
+}
+
+class OutboxMessagesCompanion extends UpdateCompanion<OutboxMessage> {
+  final Value<String> clientId;
+  final Value<String> conversationId;
+  final Value<String> body;
+  final Value<DateTime> createdAt;
+  final Value<int?> replyToSeq;
+  final Value<String> status;
+  final Value<int> attempts;
+  final Value<String?> lastError;
+  final Value<DateTime> updatedAt;
+  final Value<int> rowid;
+  const OutboxMessagesCompanion({
+    this.clientId = const Value.absent(),
+    this.conversationId = const Value.absent(),
+    this.body = const Value.absent(),
+    this.createdAt = const Value.absent(),
+    this.replyToSeq = const Value.absent(),
+    this.status = const Value.absent(),
+    this.attempts = const Value.absent(),
+    this.lastError = const Value.absent(),
+    this.updatedAt = const Value.absent(),
+    this.rowid = const Value.absent(),
+  });
+  OutboxMessagesCompanion.insert({
+    required String clientId,
+    required String conversationId,
+    required String body,
+    required DateTime createdAt,
+    this.replyToSeq = const Value.absent(),
+    required String status,
+    this.attempts = const Value.absent(),
+    this.lastError = const Value.absent(),
+    required DateTime updatedAt,
+    this.rowid = const Value.absent(),
+  })  : clientId = Value(clientId),
+        conversationId = Value(conversationId),
+        body = Value(body),
+        createdAt = Value(createdAt),
+        status = Value(status),
+        updatedAt = Value(updatedAt);
+  static Insertable<OutboxMessage> custom({
+    Expression<String>? clientId,
+    Expression<String>? conversationId,
+    Expression<String>? body,
+    Expression<DateTime>? createdAt,
+    Expression<int>? replyToSeq,
+    Expression<String>? status,
+    Expression<int>? attempts,
+    Expression<String>? lastError,
+    Expression<DateTime>? updatedAt,
+    Expression<int>? rowid,
+  }) {
+    return RawValuesInsertable({
+      if (clientId != null) 'client_id': clientId,
+      if (conversationId != null) 'conversation_id': conversationId,
+      if (body != null) 'body': body,
+      if (createdAt != null) 'created_at': createdAt,
+      if (replyToSeq != null) 'reply_to_seq': replyToSeq,
+      if (status != null) 'status': status,
+      if (attempts != null) 'attempts': attempts,
+      if (lastError != null) 'last_error': lastError,
+      if (updatedAt != null) 'updated_at': updatedAt,
+      if (rowid != null) 'rowid': rowid,
+    });
+  }
+
+  OutboxMessagesCompanion copyWith(
+      {Value<String>? clientId,
+      Value<String>? conversationId,
+      Value<String>? body,
+      Value<DateTime>? createdAt,
+      Value<int?>? replyToSeq,
+      Value<String>? status,
+      Value<int>? attempts,
+      Value<String?>? lastError,
+      Value<DateTime>? updatedAt,
+      Value<int>? rowid}) {
+    return OutboxMessagesCompanion(
+      clientId: clientId ?? this.clientId,
+      conversationId: conversationId ?? this.conversationId,
+      body: body ?? this.body,
+      createdAt: createdAt ?? this.createdAt,
+      replyToSeq: replyToSeq ?? this.replyToSeq,
+      status: status ?? this.status,
+      attempts: attempts ?? this.attempts,
+      lastError: lastError ?? this.lastError,
+      updatedAt: updatedAt ?? this.updatedAt,
+      rowid: rowid ?? this.rowid,
+    );
+  }
+
+  @override
+  Map<String, Expression> toColumns(bool nullToAbsent) {
+    final map = <String, Expression>{};
+    if (clientId.present) {
+      map['client_id'] = Variable<String>(clientId.value);
+    }
+    if (conversationId.present) {
+      map['conversation_id'] = Variable<String>(conversationId.value);
+    }
+    if (body.present) {
+      map['body'] = Variable<String>(body.value);
+    }
+    if (createdAt.present) {
+      map['created_at'] = Variable<DateTime>(createdAt.value);
+    }
+    if (replyToSeq.present) {
+      map['reply_to_seq'] = Variable<int>(replyToSeq.value);
+    }
+    if (status.present) {
+      map['status'] = Variable<String>(status.value);
+    }
+    if (attempts.present) {
+      map['attempts'] = Variable<int>(attempts.value);
+    }
+    if (lastError.present) {
+      map['last_error'] = Variable<String>(lastError.value);
+    }
+    if (updatedAt.present) {
+      map['updated_at'] = Variable<DateTime>(updatedAt.value);
+    }
+    if (rowid.present) {
+      map['rowid'] = Variable<int>(rowid.value);
+    }
+    return map;
+  }
+
+  @override
+  String toString() {
+    return (StringBuffer('OutboxMessagesCompanion(')
+          ..write('clientId: $clientId, ')
+          ..write('conversationId: $conversationId, ')
+          ..write('body: $body, ')
+          ..write('createdAt: $createdAt, ')
+          ..write('replyToSeq: $replyToSeq, ')
+          ..write('status: $status, ')
+          ..write('attempts: $attempts, ')
+          ..write('lastError: $lastError, ')
+          ..write('updatedAt: $updatedAt, ')
           ..write('rowid: $rowid')
           ..write(')'))
         .toString();
@@ -1554,12 +2073,18 @@ abstract class _$AppDatabase extends GeneratedDatabase {
   late final $ConversationMembersTable conversationMembers =
       $ConversationMembersTable(this);
   late final $MessagesTable messages = $MessagesTable(this);
+  late final $OutboxMessagesTable outboxMessages = $OutboxMessagesTable(this);
   @override
   Iterable<TableInfo<Table, Object?>> get allTables =>
       allSchemaEntities.whereType<TableInfo<Table, Object?>>();
   @override
-  List<DatabaseSchemaEntity> get allSchemaEntities =>
-      [localUsers, conversations, conversationMembers, messages];
+  List<DatabaseSchemaEntity> get allSchemaEntities => [
+        localUsers,
+        conversations,
+        conversationMembers,
+        messages,
+        outboxMessages
+      ];
 }
 
 typedef $$LocalUsersTableCreateCompanionBuilder = LocalUsersCompanion Function({
@@ -2142,6 +2667,7 @@ typedef $$MessagesTableCreateCompanionBuilder = MessagesCompanion Function({
   required DateTime createdAt,
   Value<DateTime?> deliveredAt,
   Value<DateTime?> deletedAt,
+  Value<int?> replyToSeq,
   Value<int> rowid,
 });
 typedef $$MessagesTableUpdateCompanionBuilder = MessagesCompanion Function({
@@ -2153,6 +2679,7 @@ typedef $$MessagesTableUpdateCompanionBuilder = MessagesCompanion Function({
   Value<DateTime> createdAt,
   Value<DateTime?> deliveredAt,
   Value<DateTime?> deletedAt,
+  Value<int?> replyToSeq,
   Value<int> rowid,
 });
 
@@ -2189,6 +2716,9 @@ class $$MessagesTableFilterComposer
 
   ColumnFilters<DateTime> get deletedAt => $composableBuilder(
       column: $table.deletedAt, builder: (column) => ColumnFilters(column));
+
+  ColumnFilters<int> get replyToSeq => $composableBuilder(
+      column: $table.replyToSeq, builder: (column) => ColumnFilters(column));
 }
 
 class $$MessagesTableOrderingComposer
@@ -2225,6 +2755,9 @@ class $$MessagesTableOrderingComposer
 
   ColumnOrderings<DateTime> get deletedAt => $composableBuilder(
       column: $table.deletedAt, builder: (column) => ColumnOrderings(column));
+
+  ColumnOrderings<int> get replyToSeq => $composableBuilder(
+      column: $table.replyToSeq, builder: (column) => ColumnOrderings(column));
 }
 
 class $$MessagesTableAnnotationComposer
@@ -2259,6 +2792,9 @@ class $$MessagesTableAnnotationComposer
 
   GeneratedColumn<DateTime> get deletedAt =>
       $composableBuilder(column: $table.deletedAt, builder: (column) => column);
+
+  GeneratedColumn<int> get replyToSeq => $composableBuilder(
+      column: $table.replyToSeq, builder: (column) => column);
 }
 
 class $$MessagesTableTableManager extends RootTableManager<
@@ -2292,6 +2828,7 @@ class $$MessagesTableTableManager extends RootTableManager<
             Value<DateTime> createdAt = const Value.absent(),
             Value<DateTime?> deliveredAt = const Value.absent(),
             Value<DateTime?> deletedAt = const Value.absent(),
+            Value<int?> replyToSeq = const Value.absent(),
             Value<int> rowid = const Value.absent(),
           }) =>
               MessagesCompanion(
@@ -2303,6 +2840,7 @@ class $$MessagesTableTableManager extends RootTableManager<
             createdAt: createdAt,
             deliveredAt: deliveredAt,
             deletedAt: deletedAt,
+            replyToSeq: replyToSeq,
             rowid: rowid,
           ),
           createCompanionCallback: ({
@@ -2314,6 +2852,7 @@ class $$MessagesTableTableManager extends RootTableManager<
             required DateTime createdAt,
             Value<DateTime?> deliveredAt = const Value.absent(),
             Value<DateTime?> deletedAt = const Value.absent(),
+            Value<int?> replyToSeq = const Value.absent(),
             Value<int> rowid = const Value.absent(),
           }) =>
               MessagesCompanion.insert(
@@ -2325,6 +2864,7 @@ class $$MessagesTableTableManager extends RootTableManager<
             createdAt: createdAt,
             deliveredAt: deliveredAt,
             deletedAt: deletedAt,
+            replyToSeq: replyToSeq,
             rowid: rowid,
           ),
           withReferenceMapper: (p0) => p0
@@ -2346,6 +2886,242 @@ typedef $$MessagesTableProcessedTableManager = ProcessedTableManager<
     (Message, BaseReferences<_$AppDatabase, $MessagesTable, Message>),
     Message,
     PrefetchHooks Function()>;
+typedef $$OutboxMessagesTableCreateCompanionBuilder = OutboxMessagesCompanion
+    Function({
+  required String clientId,
+  required String conversationId,
+  required String body,
+  required DateTime createdAt,
+  Value<int?> replyToSeq,
+  required String status,
+  Value<int> attempts,
+  Value<String?> lastError,
+  required DateTime updatedAt,
+  Value<int> rowid,
+});
+typedef $$OutboxMessagesTableUpdateCompanionBuilder = OutboxMessagesCompanion
+    Function({
+  Value<String> clientId,
+  Value<String> conversationId,
+  Value<String> body,
+  Value<DateTime> createdAt,
+  Value<int?> replyToSeq,
+  Value<String> status,
+  Value<int> attempts,
+  Value<String?> lastError,
+  Value<DateTime> updatedAt,
+  Value<int> rowid,
+});
+
+class $$OutboxMessagesTableFilterComposer
+    extends Composer<_$AppDatabase, $OutboxMessagesTable> {
+  $$OutboxMessagesTableFilterComposer({
+    required super.$db,
+    required super.$table,
+    super.joinBuilder,
+    super.$addJoinBuilderToRootComposer,
+    super.$removeJoinBuilderFromRootComposer,
+  });
+  ColumnFilters<String> get clientId => $composableBuilder(
+      column: $table.clientId, builder: (column) => ColumnFilters(column));
+
+  ColumnFilters<String> get conversationId => $composableBuilder(
+      column: $table.conversationId,
+      builder: (column) => ColumnFilters(column));
+
+  ColumnFilters<String> get body => $composableBuilder(
+      column: $table.body, builder: (column) => ColumnFilters(column));
+
+  ColumnFilters<DateTime> get createdAt => $composableBuilder(
+      column: $table.createdAt, builder: (column) => ColumnFilters(column));
+
+  ColumnFilters<int> get replyToSeq => $composableBuilder(
+      column: $table.replyToSeq, builder: (column) => ColumnFilters(column));
+
+  ColumnFilters<String> get status => $composableBuilder(
+      column: $table.status, builder: (column) => ColumnFilters(column));
+
+  ColumnFilters<int> get attempts => $composableBuilder(
+      column: $table.attempts, builder: (column) => ColumnFilters(column));
+
+  ColumnFilters<String> get lastError => $composableBuilder(
+      column: $table.lastError, builder: (column) => ColumnFilters(column));
+
+  ColumnFilters<DateTime> get updatedAt => $composableBuilder(
+      column: $table.updatedAt, builder: (column) => ColumnFilters(column));
+}
+
+class $$OutboxMessagesTableOrderingComposer
+    extends Composer<_$AppDatabase, $OutboxMessagesTable> {
+  $$OutboxMessagesTableOrderingComposer({
+    required super.$db,
+    required super.$table,
+    super.joinBuilder,
+    super.$addJoinBuilderToRootComposer,
+    super.$removeJoinBuilderFromRootComposer,
+  });
+  ColumnOrderings<String> get clientId => $composableBuilder(
+      column: $table.clientId, builder: (column) => ColumnOrderings(column));
+
+  ColumnOrderings<String> get conversationId => $composableBuilder(
+      column: $table.conversationId,
+      builder: (column) => ColumnOrderings(column));
+
+  ColumnOrderings<String> get body => $composableBuilder(
+      column: $table.body, builder: (column) => ColumnOrderings(column));
+
+  ColumnOrderings<DateTime> get createdAt => $composableBuilder(
+      column: $table.createdAt, builder: (column) => ColumnOrderings(column));
+
+  ColumnOrderings<int> get replyToSeq => $composableBuilder(
+      column: $table.replyToSeq, builder: (column) => ColumnOrderings(column));
+
+  ColumnOrderings<String> get status => $composableBuilder(
+      column: $table.status, builder: (column) => ColumnOrderings(column));
+
+  ColumnOrderings<int> get attempts => $composableBuilder(
+      column: $table.attempts, builder: (column) => ColumnOrderings(column));
+
+  ColumnOrderings<String> get lastError => $composableBuilder(
+      column: $table.lastError, builder: (column) => ColumnOrderings(column));
+
+  ColumnOrderings<DateTime> get updatedAt => $composableBuilder(
+      column: $table.updatedAt, builder: (column) => ColumnOrderings(column));
+}
+
+class $$OutboxMessagesTableAnnotationComposer
+    extends Composer<_$AppDatabase, $OutboxMessagesTable> {
+  $$OutboxMessagesTableAnnotationComposer({
+    required super.$db,
+    required super.$table,
+    super.joinBuilder,
+    super.$addJoinBuilderToRootComposer,
+    super.$removeJoinBuilderFromRootComposer,
+  });
+  GeneratedColumn<String> get clientId =>
+      $composableBuilder(column: $table.clientId, builder: (column) => column);
+
+  GeneratedColumn<String> get conversationId => $composableBuilder(
+      column: $table.conversationId, builder: (column) => column);
+
+  GeneratedColumn<String> get body =>
+      $composableBuilder(column: $table.body, builder: (column) => column);
+
+  GeneratedColumn<DateTime> get createdAt =>
+      $composableBuilder(column: $table.createdAt, builder: (column) => column);
+
+  GeneratedColumn<int> get replyToSeq => $composableBuilder(
+      column: $table.replyToSeq, builder: (column) => column);
+
+  GeneratedColumn<String> get status =>
+      $composableBuilder(column: $table.status, builder: (column) => column);
+
+  GeneratedColumn<int> get attempts =>
+      $composableBuilder(column: $table.attempts, builder: (column) => column);
+
+  GeneratedColumn<String> get lastError =>
+      $composableBuilder(column: $table.lastError, builder: (column) => column);
+
+  GeneratedColumn<DateTime> get updatedAt =>
+      $composableBuilder(column: $table.updatedAt, builder: (column) => column);
+}
+
+class $$OutboxMessagesTableTableManager extends RootTableManager<
+    _$AppDatabase,
+    $OutboxMessagesTable,
+    OutboxMessage,
+    $$OutboxMessagesTableFilterComposer,
+    $$OutboxMessagesTableOrderingComposer,
+    $$OutboxMessagesTableAnnotationComposer,
+    $$OutboxMessagesTableCreateCompanionBuilder,
+    $$OutboxMessagesTableUpdateCompanionBuilder,
+    (
+      OutboxMessage,
+      BaseReferences<_$AppDatabase, $OutboxMessagesTable, OutboxMessage>
+    ),
+    OutboxMessage,
+    PrefetchHooks Function()> {
+  $$OutboxMessagesTableTableManager(
+      _$AppDatabase db, $OutboxMessagesTable table)
+      : super(TableManagerState(
+          db: db,
+          table: table,
+          createFilteringComposer: () =>
+              $$OutboxMessagesTableFilterComposer($db: db, $table: table),
+          createOrderingComposer: () =>
+              $$OutboxMessagesTableOrderingComposer($db: db, $table: table),
+          createComputedFieldComposer: () =>
+              $$OutboxMessagesTableAnnotationComposer($db: db, $table: table),
+          updateCompanionCallback: ({
+            Value<String> clientId = const Value.absent(),
+            Value<String> conversationId = const Value.absent(),
+            Value<String> body = const Value.absent(),
+            Value<DateTime> createdAt = const Value.absent(),
+            Value<int?> replyToSeq = const Value.absent(),
+            Value<String> status = const Value.absent(),
+            Value<int> attempts = const Value.absent(),
+            Value<String?> lastError = const Value.absent(),
+            Value<DateTime> updatedAt = const Value.absent(),
+            Value<int> rowid = const Value.absent(),
+          }) =>
+              OutboxMessagesCompanion(
+            clientId: clientId,
+            conversationId: conversationId,
+            body: body,
+            createdAt: createdAt,
+            replyToSeq: replyToSeq,
+            status: status,
+            attempts: attempts,
+            lastError: lastError,
+            updatedAt: updatedAt,
+            rowid: rowid,
+          ),
+          createCompanionCallback: ({
+            required String clientId,
+            required String conversationId,
+            required String body,
+            required DateTime createdAt,
+            Value<int?> replyToSeq = const Value.absent(),
+            required String status,
+            Value<int> attempts = const Value.absent(),
+            Value<String?> lastError = const Value.absent(),
+            required DateTime updatedAt,
+            Value<int> rowid = const Value.absent(),
+          }) =>
+              OutboxMessagesCompanion.insert(
+            clientId: clientId,
+            conversationId: conversationId,
+            body: body,
+            createdAt: createdAt,
+            replyToSeq: replyToSeq,
+            status: status,
+            attempts: attempts,
+            lastError: lastError,
+            updatedAt: updatedAt,
+            rowid: rowid,
+          ),
+          withReferenceMapper: (p0) => p0
+              .map((e) => (e.readTable(table), BaseReferences(db, table, e)))
+              .toList(),
+          prefetchHooksCallback: null,
+        ));
+}
+
+typedef $$OutboxMessagesTableProcessedTableManager = ProcessedTableManager<
+    _$AppDatabase,
+    $OutboxMessagesTable,
+    OutboxMessage,
+    $$OutboxMessagesTableFilterComposer,
+    $$OutboxMessagesTableOrderingComposer,
+    $$OutboxMessagesTableAnnotationComposer,
+    $$OutboxMessagesTableCreateCompanionBuilder,
+    $$OutboxMessagesTableUpdateCompanionBuilder,
+    (
+      OutboxMessage,
+      BaseReferences<_$AppDatabase, $OutboxMessagesTable, OutboxMessage>
+    ),
+    OutboxMessage,
+    PrefetchHooks Function()>;
 
 class $AppDatabaseManager {
   final _$AppDatabase _db;
@@ -2358,4 +3134,6 @@ class $AppDatabaseManager {
       $$ConversationMembersTableTableManager(_db, _db.conversationMembers);
   $$MessagesTableTableManager get messages =>
       $$MessagesTableTableManager(_db, _db.messages);
+  $$OutboxMessagesTableTableManager get outboxMessages =>
+      $$OutboxMessagesTableTableManager(_db, _db.outboxMessages);
 }

@@ -2,6 +2,7 @@ package ws
 
 import (
 	"encoding/json"
+	"errors"
 	"net/http"
 	"strings"
 	"time"
@@ -185,6 +186,7 @@ func Handler(deps HandlerDeps) gin.HandlerFunc {
 				var data struct {
 					ConversationID string `json:"conversationId"`
 					Body           string `json:"body"`
+					ReplyToSeq     *int64 `json:"replyToSeq"`
 				}
 				if err := json.Unmarshal(env.Data, &data); err != nil {
 					_ = sendErr(wsConn, ErrBadRequest, "invalid data")
@@ -213,38 +215,51 @@ func Handler(deps HandlerDeps) gin.HandlerFunc {
 					selfID,
 					strings.TrimSpace(env.ID),
 					body,
+					data.ReplyToSeq,
 				)
 				if err != nil {
+					if errors.Is(err, repositories.ErrReplyTargetMissing) {
+						_ = sendErr(wsConn, ErrBadRequest, err.Error())
+						continue
+					}
 					_ = sendErr(wsConn, ErrInternal, "persist failed")
 					continue
 				}
 
+				ackData := map[string]any{
+					"conversationId": convID.String(),
+					"messageId":      msg.ID.String(),
+					"seq":            msg.Seq,
+					"createdAt":      msg.CreatedAt.UTC().Format(time.RFC3339Nano),
+				}
+				if msg.ReplyToSeq != nil {
+					ackData["replyToSeq"] = *msg.ReplyToSeq
+				}
 				ack := EnvelopeV1{
-					V:  ProtocolVersionV1,
-					T:  EventMsgAck,
-					ID: env.ID,
-					Data: mustMarshal(map[string]any{
-						"conversationId": convID.String(),
-						"messageId":      msg.ID.String(),
-						"seq":            msg.Seq,
-						"createdAt":      msg.CreatedAt.UTC().Format(time.RFC3339Nano),
-					}),
+					V:    ProtocolVersionV1,
+					T:    EventMsgAck,
+					ID:   env.ID,
+					Data: mustMarshal(ackData),
 				}
 				ackBytes, _ := json.Marshal(ack)
 				conn.TrySend(ackBytes)
 
+				newPayload := map[string]any{
+					"conversationId": convID.String(),
+					"messageId":      msg.ID.String(),
+					"seq":            msg.Seq,
+					"senderUserId":   msg.SenderUserID.String(),
+					"body":           msg.Body,
+					"createdAt":      msg.CreatedAt.UTC().Format(time.RFC3339Nano),
+					"deliveredAt":    nil,
+				}
+				if msg.ReplyToSeq != nil {
+					newPayload["replyToSeq"] = *msg.ReplyToSeq
+				}
 				newEnv := EnvelopeV1{
-					V: ProtocolVersionV1,
-					T: EventMsgNew,
-					Data: mustMarshal(map[string]any{
-						"conversationId": convID.String(),
-						"messageId":      msg.ID.String(),
-						"seq":            msg.Seq,
-						"senderUserId":   msg.SenderUserID.String(),
-						"body":           msg.Body,
-						"createdAt":      msg.CreatedAt.UTC().Format(time.RFC3339Nano),
-						"deliveredAt":    nil,
-					}),
+					V:    ProtocolVersionV1,
+					T:    EventMsgNew,
+					Data: mustMarshal(newPayload),
 				}
 				newBytes, _ := json.Marshal(newEnv)
 
