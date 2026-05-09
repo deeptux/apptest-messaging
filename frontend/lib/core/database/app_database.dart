@@ -109,6 +109,30 @@ class AppDatabase extends _$AppDatabase {
             await m.createTable(outboxMessages);
           }
         },
+        beforeOpen: (details) async {
+          // Defensive repair: some deployed browsers may have schemaVersion=5 but
+          // missed creating the outbox table due to an older migration bug.
+          // Ensure it's present to prevent "no such table: outbox_messages".
+          if (details.versionNow >= 5) {
+            await customStatement('''
+CREATE TABLE IF NOT EXISTS outbox_messages (
+  client_id TEXT NOT NULL PRIMARY KEY,
+  conversation_id TEXT NOT NULL,
+  body TEXT NOT NULL,
+  created_at INTEGER NOT NULL,
+  reply_to_seq INTEGER NULL,
+  status TEXT NOT NULL,
+  attempts INTEGER NOT NULL DEFAULT 0,
+  last_error TEXT NULL,
+  updated_at INTEGER NOT NULL
+);
+''');
+            await customStatement('''
+CREATE INDEX IF NOT EXISTS idx_outbox_messages_conversation_created_at
+  ON outbox_messages (conversation_id, created_at DESC);
+''');
+          }
+        },
       );
 
   /// Upserts the signed-in user's profile row and removes other cached profiles
