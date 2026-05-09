@@ -91,7 +91,9 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
   final _scroll = ScrollController();
   final _composer = TextEditingController();
   bool _loadingOlder = false;
-  bool _initialLoading = true;
+
+  /// False until first [syncLatestMessages] + read cursor settle; avoids a one-frame "Say hi." flash.
+  bool _chatUiReady = false;
 
   /// Captured once built; used after dispose without touching [ref].
   ProviderContainer? _scopeContainer;
@@ -179,9 +181,6 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
 
     Future.microtask(() async {
       if (!mounted) return;
-      if (_initialLoading) {
-        setState(() => _initialLoading = true);
-      }
       await ref.read(chatRepositoryProvider).syncLatestMessages(conversationId: widget.conversationId);
       if (!mounted) return;
       final db = ref.read(appDatabaseProvider);
@@ -189,7 +188,10 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
       if (!mounted) return;
       final lastSeq = latest.isEmpty ? 0 : latest.first.seq;
       await _applyReadSeq(lastSeq);
-      if (mounted) setState(() => _initialLoading = false);
+      // Let Drift streams catch up so we don't paint "Say hi." for one frame before rows arrive.
+      await Future<void>.delayed(const Duration(milliseconds: 80));
+      if (!mounted) return;
+      setState(() => _chatUiReady = true);
     });
 
     _scroll.addListener(() async {
@@ -424,7 +426,7 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
                       builder: (context, snapOut) {
                         final outbox = snapOut.data ?? const [];
                         if (msgs.isEmpty && outbox.isEmpty) {
-                          if (_initialLoading) return const SizedBox.shrink();
+                          if (!_chatUiReady) return const SizedBox.shrink();
                           return const Center(child: Text('Say hi.'));
                         }
 
@@ -760,7 +762,7 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
               ),
             ],
           ),
-          if (_initialLoading)
+          if (!_chatUiReady)
             Positioned.fill(
               child: AbsorbPointer(
                 absorbing: true,

@@ -26,14 +26,31 @@ class _InboxScreenState extends ConsumerState<InboxScreen> {
   /// Full-screen glass overlay + bar while pushing [ChatScreen].
   bool _navigatingToChat = false;
 
+  /// True until the first [syncInbox] finishes; also true while refreshing after returning from chat.
+  /// When the list is still empty, we show a loader instead of "No conversations yet…".
+  bool _inboxSyncing = true;
+
   bool get _blockingInboxPointer =>
       _navigatingToChat || _hidingConversationId != null;
+
+  Future<void> _runInboxSync() async {
+    if (!mounted) return;
+    setState(() => _inboxSyncing = true);
+    try {
+      await ref.read(chatRepositoryProvider).syncInbox(selfUserId: widget.me.userId);
+    } catch (_) {
+      // Network errors: keep local rows; user can pull nothing special here.
+    } finally {
+      if (mounted) setState(() => _inboxSyncing = false);
+    }
+  }
 
   @override
   void initState() {
     super.initState();
-    Future.microtask(() async {
-      await ref.read(chatRepositoryProvider).syncInbox(selfUserId: widget.me.userId);
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      // ignore: unawaited_futures
+      _runInboxSync();
     });
   }
 
@@ -41,9 +58,8 @@ class _InboxScreenState extends ConsumerState<InboxScreen> {
   void didUpdateWidget(covariant InboxScreen oldWidget) {
     super.didUpdateWidget(oldWidget);
     if (oldWidget.me.userId != widget.me.userId) {
-      Future.microtask(() async {
-        await ref.read(chatRepositoryProvider).syncInbox(selfUserId: widget.me.userId);
-      });
+      // ignore: unawaited_futures
+      _runInboxSync();
     }
   }
 
@@ -132,6 +148,29 @@ class _InboxScreenState extends ConsumerState<InboxScreen> {
           }
           final rows = snap.data ?? const [];
           if (rows.isEmpty) {
+            if (_inboxSyncing) {
+              return Center(
+                child: Padding(
+                  padding: const EdgeInsets.all(24),
+                  child: Column(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      const SizedBox(
+                        width: 40,
+                        height: 40,
+                        child: CircularProgressIndicator(strokeWidth: 3),
+                      ),
+                      const SizedBox(height: 20),
+                      Text(
+                        'Loading inbox…',
+                        textAlign: TextAlign.center,
+                        style: Theme.of(context).textTheme.titleSmall,
+                      ),
+                    ],
+                  ),
+                ),
+              );
+            }
             return const Center(
               child: Padding(
                 padding: EdgeInsets.all(24),
@@ -246,7 +285,11 @@ class _InboxScreenState extends ConsumerState<InboxScreen> {
                         ),
                       );
                     } finally {
-                      if (mounted) setState(() => _navigatingToChat = false);
+                      if (mounted) {
+                        setState(() => _navigatingToChat = false);
+                        // ignore: unawaited_futures
+                        _runInboxSync();
+                      }
                     }
                   },
                 ),
