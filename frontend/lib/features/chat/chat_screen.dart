@@ -103,6 +103,8 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
 
   Timer? _readDebounce;
   StreamSubscription<List<Message>>? _latestMsgSub;
+  StreamSubscription<bool>? _wsConnSub;
+  Timer? _fallbackSyncTimer;
 
   /// Messenger-style quoted message for the next send (cleared after send).
   Message? _replyingTo;
@@ -177,6 +179,49 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
       if (!mounted) return;
       _scopeContainer ??= ProviderScope.containerOf(context, listen: false);
       _attachLatestMessageSubscription();
+    });
+
+    // WebSocket should keep the DB live via SessionNotifier. This fallback prevents
+    // "one side didn't update" when a client silently drops WS events on slow/spotty networks.
+    Future.microtask(() {
+      final ws = ref.read(wsClientProvider);
+      void armFallback() {
+        _fallbackSyncTimer?.cancel();
+        _fallbackSyncTimer = Timer.periodic(const Duration(seconds: 6), (_) async {
+          if (!mounted) return;
+          if (ref.read(wsClientProvider).isConnected) return;
+          try {
+            await ref.read(chatRepositoryProvider).syncLatestMessages(
+                  conversationId: widget.conversationId,
+                );
+          } catch (_) {}
+        });
+      }
+
+      void disarmFallback() {
+        _fallbackSyncTimer?.cancel();
+        _fallbackSyncTimer = null;
+      }
+
+      // Initial state
+      if (!ws.isConnected) {
+        armFallback();
+      }
+
+      _wsConnSub = ws.connection.listen((connected) async {
+        if (!mounted) return;
+        if (connected) {
+          disarmFallback();
+          // Catch up immediately after reconnect.
+          try {
+            await ref.read(chatRepositoryProvider).syncLatestMessages(
+                  conversationId: widget.conversationId,
+                );
+          } catch (_) {}
+        } else {
+          armFallback();
+        }
+      });
     });
 
     Future.microtask(() async {
@@ -267,6 +312,8 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
   void dispose() {
     _readDebounce?.cancel();
     _latestMsgSub?.cancel();
+    _wsConnSub?.cancel();
+    _fallbackSyncTimer?.cancel();
     final container = _scopeContainer;
     _scroll.dispose();
     _composer.dispose();
@@ -396,7 +443,7 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
     return Scaffold(
       appBar: AppBar(
         title: Text(
-          widget.title,
+          'FROM: ${widget.title}',
           maxLines: 2,
           overflow: TextOverflow.ellipsis,
           style: theme.textTheme.titleLarge?.copyWith(fontWeight: FontWeight.w600),
